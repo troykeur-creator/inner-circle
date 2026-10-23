@@ -1031,6 +1031,7 @@ function NewPost({ day, promptId, promptText }) {
   const [aud, setAud] = useState({ mode: "all", groupId: null, groupName: "", except: [] });
   const [audOpen, setAudOpen] = useState(false);
   const meta = Object.assign({}, aud.mode === "group" && aud.groupId ? { audience_group: aud.groupId } : {}, aud.mode === "except" && aud.except.length ? { hidden_from: aud.except } : {}, promptId ? { prompt_id: promptId } : {});
+  const [showAll, setShowAll] = useState(false);
   const [files, setFiles] = useState([]);
   const [caption, setCaption] = useState("");
   const [place, setPlace] = useState("");
@@ -1145,7 +1146,7 @@ function NewPost({ day, promptId, promptText }) {
         <button onClick=${function () { vinput.current.click(); }}><${Icon} n="play" s=${30} sw=${1.6} /><b>Video</b><span>${longAt ? "Up to 30 seconds. Longer opens at " + longAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "30 seconds, or 3 minutes once a day"}</span></button>
       </div>`}
       <div className="row" style=${{ alignItems: "flex-start", padding: "1rem", borderBottom: "1px solid var(--soft)" }}>
-        ${(files.length > 0 || video) && html`<button onClick=${function () { input.current.click(); }} aria-label=${files.length ? "Add more photos" : "Choose photos"}
+        ${(files.length === 1 || video) && html`<button onClick=${function () { input.current.click(); }} aria-label=${files.length ? "Add more photos" : "Choose photos"}
           style=${{ flex: "none", width: "5.5rem", height: "5.5rem", borderRadius: ".4rem", border: files.length ? 0 : "1px dashed #b9b9b9", background: "#f4f4f4", padding: 0, overflow: "hidden", cursor: "pointer", color: "var(--muted)", fontSize: ".8rem", position: "relative" }}>
           ${video ? (video.posterUrl ? html`<img src=${video.posterUrl} alt="Video preview" style=${{ width: "100%", height: "100%", objectFit: "cover" }} /><span className="addmore">Video</span>` : html`<span>Preparing...</span>`)
             : files.length ? html`<img src=${files[0].url} alt="Your first chosen photo" style=${{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -1155,10 +1156,22 @@ function NewPost({ day, promptId, promptText }) {
         <textarea id="np-cap" className="field" style=${{ border: 0, background: "#fff", height: "5.5rem" }} maxLength="3000"
           placeholder="Tell them what is happening, who is in it, how it felt..." value=${caption} onChange=${function (e) { setCaption(e.target.value); }}></textarea>
       </div>
-      ${files.length > 1 && html`<div className="thumbs">${files.map(function (f, k) {
-        return html`<div className="thumb" key=${f.url}><img src=${f.url} alt=${"Photo " + (k + 1)} />
-          <button aria-label=${"Remove photo " + (k + 1)} onClick=${function () { drop(k); }}><${Icon} n="close" s=${14} sw=${3} color="#fff" /></button></div>`;
-      })}</div>`}
+      ${files.length > 1 && html`<div className="collage">
+        ${(showAll ? files : files.slice(0, 5)).map(function (f, k) {
+          const over = !showAll && k === 4 && files.length > 5;
+          const span = showAll ? 2 : (files.length === 2 ? 3 : k < 2 ? 3 : 2);
+          return html`<div className=${"ctile" + (over ? " over" : "")} key=${f.url} style=${{ gridColumn: "span " + span }}>
+            <img src=${f.url} alt=${"Photo " + (k + 1)} />
+            ${over ? html`<button className="more" aria-label=${"Show all " + files.length + " photos"} onClick=${function () { setShowAll(true); }}>+${files.length - 5}</button>`
+              : html`<button className="x" aria-label=${"Remove photo " + (k + 1)} onClick=${function () { drop(k); }}><${Icon} n="close" s=${14} sw=${3} color="#fff" /></button>`}
+          </div>`;
+        })}
+      </div>
+      <div className="row" style=${{ padding: ".5rem 1rem 0" }}>
+        ${files.length < MAX_PHOTOS && html`<button className="linkbtn" onClick=${function () { input.current.click(); }}>+ Add more photos</button>`}
+        <span className="grow"></span>
+        ${showAll && files.length > 5 && html`<button className="linkbtn" onClick=${function () { setShowAll(false); }}>Show fewer</button>`}
+      </div>`}
       ${video ? html`<div style=${{ padding: ".6rem 1rem 0" }}>
           <div style=${{ fontSize: ".9rem" }}>${video.status === "working" ? "Getting your video ready... " + Math.round(video.pct * 100) + "%" : "Video ready: " + fmtTime(video.seconds) + ", " + fmtSize(video.outSize) + (video.outSize < video.size ? " (shrunk from " + fmtSize(video.size) + ")" : "")}</div>
           ${video.status === "working" && html`<div className="meter" style=${{ marginTop: ".3rem" }}><i style=${{ width: Math.round(video.pct * 100) + "%" }}></i></div>`}

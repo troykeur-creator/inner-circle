@@ -265,6 +265,11 @@
   .pick2 button { flex: 1; min-height: 7rem; border: 1.5px dashed #b9b9b9; border-radius: 1rem; background: #fafafa; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; padding: .6rem; cursor: pointer; color: var(--green); text-align: center; }
   .pick2 b { color: var(--ink); font-size: 1rem; }
   .pick2 span { color: var(--muted); font-size: .72rem; line-height: 1.2; }
+.collage { display: grid; grid-template-columns: repeat(6, 1fr); gap: .3rem; padding: .8rem 1rem 0; }
+  .ctile { position: relative; aspect-ratio: 1; }
+  .ctile img { width: 100%; height: 100%; object-fit: cover; border-radius: .5rem; display: block; }
+  .ctile .x { position: absolute; top: .3rem; right: .3rem; width: 1.7rem; height: 1.7rem; border-radius: 50%; border: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; }
+  .ctile .more { position: absolute; inset: 0; border: 0; border-radius: .5rem; background: rgba(0,0,0,.55); color: #fff; font-size: 1.6rem; font-weight: 700; cursor: pointer; }
 </style>
 </head>
 <body>
