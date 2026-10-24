@@ -348,6 +348,7 @@ function useUrls(paths) {
   }, [key]);
   return function (path) { const c = path && urlCache.get(path); return c ? c.url : null; };
 }
+function spanFor(n, k) { return n === 3 ? (k === 0 ? 6 : 3) : n === 2 || n === 4 ? 3 : k < 2 ? 3 : 2; }
 function postPaths(p) { return [p.image_path].concat(p.extra_paths || []).filter(Boolean); }
 function allPaths(p) { return postPaths(p).concat(p.video_path ? [p.video_path] : []); }
 
@@ -608,6 +609,9 @@ function PostCard({ post, onChange, albumId }) {
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.caption || "");
+  const [grid, setGrid] = useState(true);
+  const [start, setStart] = useState(0);
+  const startRef = useRef(null);
   const [idx, setIdx] = useState(0);
   const lastTap = useRef(0);
   const paths = post.video_path ? [] : postPaths(post);
@@ -679,14 +683,26 @@ function PostCard({ post, onChange, albumId }) {
           ${urls(paths[0]) ? html`<img className="photo" src=${urls(paths[0])} alt=${"Photo shared by " + authorName} draggable="false" />` : html`<div className="photo ph"></div>`}
           ${burst && html`<div className="pop"><${Icon} n="heart" s=${90} fill="#fff" color="#fff" sw=${1} /></div>`}
         </div>`}
-      ${paths.length > 1 && html`
+      ${paths.length > 1 && grid && html`<div className="fgrid">
+        ${paths.slice(0, 5).map(function (p, k) {
+          const over = k === 4 && paths.length > 5;
+          const span = spanFor(paths.length, k);
+          return html`<button className="ftile" key=${p} style=${{ gridColumn: "span " + span }} aria-label=${over ? "Show all " + paths.length + " photos" : "Open photo " + (k + 1)}
+            onClick=${function () { startRef.current = k; setStart(k); setIdx(k); setGrid(false); }}>
+            ${urls(p) ? html`<img src=${urls(p)} alt=${"Photo " + (k + 1) + " of " + paths.length + " shared by " + authorName} draggable="false" />` : html`<span className="ph"></span>`}
+            ${over && html`<span className="fmore">+${paths.length - 5}</span>`}
+          </button>`;
+        })}
+      </div>`}
+      ${paths.length > 1 && !grid && html`
         <div style=${{ position: "relative" }}>
-          <div className="carousel" onScroll=${onScroll} onClick=${photoTap}>
+          <div className="carousel" ref=${function (el) { if (el && startRef.current !== null) { el.scrollLeft = startRef.current * el.clientWidth; startRef.current = null; } }} onScroll=${onScroll} onClick=${photoTap}>
             ${paths.map(function (p, k) {
               return html`<div className="slide" key=${p}>${urls(p) ? html`<img className="photo" src=${urls(p)} alt=${"Photo " + (k + 1) + " of " + paths.length + " shared by " + authorName} draggable="false" />` : html`<div className="photo ph"></div>`}</div>`;
             })}
           </div>
           <div className="count" aria-hidden="true">${idx + 1}/${paths.length}</div>
+          <button className="gridbtn" onClick=${function () { setGrid(true); }}>Grid</button>
           ${burst && html`<div className="pop"><${Icon} n="heart" s=${90} fill="#fff" color="#fff" sw=${1} /></div>`}
         </div>
         <div className="dots" aria-hidden="true">${paths.map(function (p, k) { return html`<i key=${p} className=${k === idx ? "on" : ""}></i>`; })}</div>`}
@@ -1159,7 +1175,7 @@ function NewPost({ day, promptId, promptText }) {
       ${files.length > 1 && html`<div className="collage">
         ${(showAll ? files : files.slice(0, 5)).map(function (f, k) {
           const over = !showAll && k === 4 && files.length > 5;
-          const span = showAll ? 2 : (files.length === 2 ? 3 : k < 2 ? 3 : 2);
+          const span = showAll ? 2 : spanFor(files.length, k);
           return html`<div className=${"ctile" + (over ? " over" : "")} key=${f.url} style=${{ gridColumn: "span " + span }}>
             <img src=${f.url} alt=${"Photo " + (k + 1)} />
             ${over ? html`<button className="more" aria-label=${"Show all " + files.length + " photos"} onClick=${function () { setShowAll(true); }}>+${files.length - 5}</button>`

@@ -270,6 +270,12 @@
   .ctile img { width: 100%; height: 100%; object-fit: cover; border-radius: .5rem; display: block; }
   .ctile .x { position: absolute; top: .3rem; right: .3rem; width: 1.7rem; height: 1.7rem; border-radius: 50%; border: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; }
   .ctile .more { position: absolute; inset: 0; border: 0; border-radius: .5rem; background: rgba(0,0,0,.55); color: #fff; font-size: 1.6rem; font-weight: 700; cursor: pointer; }
+.fgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; }
+  .ftile { position: relative; aspect-ratio: 1; min-width: 0; padding: 0; border: 0; background: #eee; cursor: pointer; overflow: hidden; }
+  .ftile img, .ftile .ph { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .fmore { position: absolute; inset: 0; background: rgba(0,0,0,.5); color: #fff; font-size: 1.8rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .gridbtn { position: absolute; top: .6rem; left: .6rem; background: rgba(0,0,0,.6); color: #fff; border: 0; border-radius: 1rem; padding: .25rem .7rem; font-size: .8rem; cursor: pointer; }
+.ftile[style*="span 6"], .ctile[style*="span 6"] { aspect-ratio: 2 / 1; }
 </style>
 </head>
 <body>
