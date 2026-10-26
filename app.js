@@ -69,6 +69,48 @@ function isStandalone() {
 }
 function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
 
+/* ---- push notifications ---- */
+const VAPID_PUBLIC = "BHm6cnEMuBbq6SpQNBmRoLcd2ovUM3HMqcJuOpStei0kh6io2vSrHIpjmC_LX6yW0DohblUmTUtqAaTxpX18Tvo";
+function pushCanWork() {
+  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && !!VAPID_PUBLIC;
+}
+function pushNeedsInstall() { return isIOS() && !isStandalone(); }
+function b64ToBytes(b) {
+  const pad = "=".repeat((4 - (b.length % 4)) % 4);
+  const raw = atob((b + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+async function pushSave(sub) {
+  const j = sub.toJSON();
+  const r = await sb.rpc("save_push_sub", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+  if (r.error) throw r.error;
+}
+async function pushEnable() {
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return perm;
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC) });
+  await pushSave(sub);
+  lsSet("ic-push", "1");
+  return "granted";
+}
+async function pushDisable() {
+  lsSet("ic-push", "0");
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) {
+    try { await sb.rpc("drop_push_sub", { p_endpoint: sub.endpoint }); } catch (e) {}
+    await sub.unsubscribe();
+  }
+}
+async function pushIsOn() {
+  if (!pushCanWork() || Notification.permission !== "granted") return false;
+  try { const reg = await navigator.serviceWorker.ready; return !!(await reg.pushManager.getSubscription()) && lsGet("ic-push", "") === "1"; } catch (e) { return false; }
+}
+
 let deferredInstall = null;
 window.addEventListener("beforeinstallprompt", function (e) {
   e.preventDefault();
@@ -443,11 +485,10 @@ function toE164(raw) {
 
 function AuthScreen({ toast, easy, setEasy }) {
   const urlCode = inviteFromUrl();
-  const [mode, setMode] = useState(urlCode ? "up" : "in");   // in | up | email | forgot
+  const [mode, setMode] = useState(urlCode ? "up" : "in");   // in | up
   const [step, setStep] = useState("details");                // details | code
-  const [f, setF] = useState({ name: "", phone: "", email: "", password: "", code: urlCode, token: "" });
+  const [f, setF] = useState({ name: "", phone: "", code: urlCode, token: "" });
   const [busy, setBusy] = useState(false);
-  const [show, setShow] = useState(false);
   const [wait, setWait] = useState(0);
   const set = function (k) { return function (e) { const v = e.target.value; setF(function (o) { return Object.assign({}, o, { [k]: v }); }); }; };
 
@@ -482,21 +523,12 @@ function AuthScreen({ toast, easy, setEasy }) {
     e.preventDefault();
     setBusy(true);
     try {
-      if (mode === "in" || mode === "up") {
+      {
         if (step === "details") await sendCode();
         else {
           const r = await sb.auth.verifyOtp({ phone: toE164(f.phone), token: f.token.trim(), type: "sms" });
           if (r.error) throw new Error(friendlyAuthError(r.error, "That code did not work. Check the text and try again, or ask for a new one."));
         }
-      } else if (mode === "email") {
-        const r = await sb.auth.signInWithPassword({ email: f.email.trim(), password: f.password });
-        if (r.error) throw r.error;
-      } else {
-        if (!f.email.trim()) throw new Error("Type your email first.");
-        const r = await sb.auth.resetPasswordForEmail(f.email.trim(), { redirectTo: location.origin + location.pathname });
-        if (r.error) throw r.error;
-        toast("If that email is in Inner Circle, a reset link is on its way.");
-        go("email");
       }
     } catch (err) {
       toast(err.message || "Something went wrong.");
@@ -510,10 +542,8 @@ function AuthScreen({ toast, easy, setEasy }) {
     setBusy(false);
   }
 
-  const phoneMode = mode === "in" || mode === "up";
-  const title = phoneMode
-    ? (step === "code" ? "Sign in" : mode === "up" ? "Text me a code to join" : "Text me a code")
-    : mode === "email" ? "Sign in" : "Send reset link";
+  const phoneMode = true;
+  const title = step === "code" ? "Sign in" : mode === "up" ? "Text me a code to join" : "Text me a code";
   return html`
     <div className="authwrap">
       <button className="aa" aria-label=${easy ? "Switch to standard text" : "Switch to larger text"} aria-pressed=${easy} onClick=${function () { setEasy(!easy); }}>Aa</button>
@@ -543,50 +573,17 @@ function AuthScreen({ toast, easy, setEasy }) {
             <button type="button" className="linkbtn" style=${{ fontWeight: 500 }} disabled=${wait > 0 || busy} onClick=${resend}>${wait > 0 ? "Send a new code in " + wait + "s" : "Send a new code"}</button>
             <button type="button" className="linkbtn" style=${{ fontWeight: 500 }} onClick=${function () { setStep("details"); }}>Wrong number?</button>
           </div>`}
-        ${!phoneMode && html`
-          <label className="sr" htmlFor="a-email">Email</label>
-          <input id="a-email" className="field" type="email" placeholder="Email" value=${f.email} onChange=${set("email")} autoComplete="email" autoCapitalize="none" required />
-          ${mode === "email" && html`
-            <label className="sr" htmlFor="a-pw">Password</label>
-            <input id="a-pw" className="field" type=${show ? "text" : "password"} placeholder="Password" value=${f.password} onChange=${set("password")} autoComplete="current-password" required />
-            <div style=${{ textAlign: "right" }}><button type="button" className="linkbtn" style=${{ fontWeight: 500 }} onClick=${function () { setShow(!show); }}>${show ? "Hide password" : "Show password"}</button></div>`}`}
         <button className="btn block" style=${{ height: "3.1rem" }} disabled=${busy}>${busy ? "One moment..." : phoneMode && step === "code" ? "Sign in" : title}</button>
-        ${mode === "email" && html`<div className="center"><button type="button" className="linkbtn" style=${{ fontWeight: 500 }} onClick=${function () { go("forgot"); }}>Forgot password?</button></div>`}
       </form>
       <div style=${{ flex: 1 }}></div>
       <div className="center" style=${{ borderTop: "1px solid var(--line)", paddingTop: "1rem" }}>
         ${mode === "in" && html`<span>New here? <button className="linkbtn" onClick=${function () { go("up"); }}>Join with an invite</button></span>`}
         ${mode === "up" && html`<span>Already a member? <button className="linkbtn" onClick=${function () { go("in"); }}>Sign in</button></span>`}
-        ${(mode === "email" || mode === "forgot") && html`<button className="linkbtn" onClick=${function () { go("in"); }}>Sign in with a text code instead</button>`}
-        ${phoneMode && step === "details" && html`<div><button className="linkbtn" style=${{ fontWeight: 500, fontSize: ".85rem" }} onClick=${function () { go("email"); }}>Sign in with email instead</button></div>`}
         <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".3rem" }}>Private. No ads. No algorithm. No strangers.</div>
       </div>
     </div>`;
 }
 
-function NewPassword({ toast, done }) {
-  const [pw, setPw] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function submit(e) {
-    e.preventDefault();
-    if (pw.length < 8) { toast("Please choose at least 8 characters."); return; }
-    setBusy(true);
-    const r = await sb.auth.updateUser({ password: pw });
-    setBusy(false);
-    if (r.error) { toast(r.error.message); return; }
-    toast("Password updated");
-    done();
-  }
-  return html`
-    <div className="authwrap">
-      <div className="center"><${Logo} s=${56} /><h1 className="serif" style=${{ color: "#2f5d50", margin: ".4rem 0" }}>Choose a new password</h1></div>
-      <form className="stack" onSubmit=${submit} style=${{ marginTop: "1.5rem" }}>
-        <label className="sr" htmlFor="np">New password</label>
-        <input id="np" className="field" type="password" placeholder="New password" value=${pw} onChange=${function (e) { setPw(e.target.value); }} autoComplete="new-password" />
-        <button className="btn block" style=${{ height: "3.1rem" }} disabled=${busy}>Save password</button>
-      </form>
-    </div>`;
-}
 
 function Waiting({ me, reloadMe }) {
   const removed = me.status === "removed";
@@ -760,6 +757,29 @@ function GettingStarted({ hasPosts }) {
     </div></div>`;
 }
 
+function PushAsk() {
+  const [show, setShow] = useState(function () {
+    return pushCanWork() && !pushNeedsInstall() && Notification.permission === "default" && lsGet("ic-push-ask", "") !== "1";
+  });
+  const [busy, setBusy] = useState(false);
+  const { toast } = useApp();
+  if (!show) return null;
+  async function turnOn() {
+    setBusy(true);
+    try {
+      const r = await pushEnable();
+      if (r === "granted") toast("Notifications are on.");
+      else toast("No problem. You can turn them on later in Me, then the gear icon.");
+    } catch (e) { toast("Could not turn on notifications. You can try again in Me, then the gear icon."); }
+    lsSet("ic-push-ask", "1"); setShow(false);
+  }
+  return html`<div className="pcard slim">
+    <div className="grow"><div className="pt" style=${{ fontSize: ".95rem" }}>Get a buzz when family shares something new.</div></div>
+    <button className="btn sm" disabled=${busy} onClick=${turnOn}>Turn on</button>
+    <button className="linkbtn" onClick=${function () { lsSet("ic-push-ask", "1"); setShow(false); }}>Not now</button>
+  </div>`;
+}
+
 function Home() {
   const { me, profiles, toast, push, tick, unread, memberCount } = useApp();
   const [posts, setPosts] = useState(null);
@@ -848,6 +868,7 @@ function Home() {
       ${news && daysSince(news.created_at) < 14 && html`<${NewsCard} item=${news} />`}
       ${prompt && daysSince(prompt.created_at) < 14 && html`<${PromptCard} prompt=${prompt} answers=${answers} />`}
       ${noteSheet && html`<${NoteSheet} target=${noteSheet} onClose=${function () { setNoteSheet(null); }} onDone=${load} />`}
+      <${PushAsk} />
       ${me.role === "admin" && memberCount <= 1 && posts && html`<${GettingStarted} hasPosts=${posts.length > 0} />`}
       ${posts.length === 0 && !(me.role === "admin" && memberCount <= 1) && html`
         <div className="center" style=${{ padding: "3rem 1.5rem" }}>
@@ -1284,7 +1305,7 @@ function NudgeSheet({ onClose }) {
     onClose();
   }
   return html`<${Sheet} title="Shared! Tell the family?" onClose=${onClose}>
-    <p className="muted" style=${{ marginTop: 0 }}>Inner Circle cannot buzz phones yet, so a quick text helps everyone see it sooner. You will only be asked once a day.</p>
+    <p className="muted" style=${{ marginTop: 0 }}>Family who have not turned on notifications will not know. A quick text helps everyone see it sooner. You will only be asked once a day.</p>
     <button className="btn block" style=${{ height: "3rem" }} onClick=${send}>Text the family a link</button>
     <button className="sheetbtn" style=${{ textAlign: "center", marginTop: ".4rem" }} onClick=${onClose}>Not now</button>
   </${Sheet}>`;
@@ -1831,6 +1852,21 @@ function Settings() {
   const [bio, setBio] = useState(me.bio || "");
   const [busy, setBusy] = useState(false);
   const [arch, setArch] = useState("");
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(function () { pushIsOn().then(setPushOn); }, []);
+  async function togglePush() {
+    setPushBusy(true);
+    try {
+      if (pushOn) { await pushDisable(); setPushOn(false); toast("Notifications are off on this phone."); }
+      else {
+        const r = await pushEnable();
+        if (r === "granted") { setPushOn(true); toast("Notifications are on."); }
+        else toast("Your phone blocked notifications. Allow them for Inner Circle in your phone's settings, then try again.");
+      }
+    } catch (e) { toast("Could not turn on notifications. Please try again."); }
+    setPushBusy(false);
+  }
   const [curPhone, setCurPhone] = useState(null);
   const [newPhone, setNewPhone] = useState("");
   const [phStep, setPhStep] = useState("idle");
@@ -1944,7 +1980,7 @@ function Settings() {
         ${curPhone ? html`<div className="muted" style=${{ fontSize: ".85rem", marginTop: ".2rem" }}>Texts go to ${curPhone}. Use "Text me a code" on the sign-in screen.</div>`
           : curPhone === null ? html`<div className="muted" style=${{ fontSize: ".85rem" }}>Checking...</div>`
           : html`<div>
-            <div className="muted" style=${{ fontSize: ".85rem", margin: ".2rem 0 .5rem" }}>Add your mobile number to sign in with a texted code instead of email.</div>
+            <div className="muted" style=${{ fontSize: ".85rem", margin: ".2rem 0 .5rem" }}>Add your mobile number to sign in with a texted code.</div>
             ${phStep === "idle" ? html`<div className="row">
                 <label className="sr" htmlFor="s-phone">Mobile number</label>
                 <input id="s-phone" className="field" type="tel" inputMode="tel" autoComplete="tel" placeholder="Mobile number" value=${newPhone} onChange=${function (e) { setNewPhone(e.target.value); }} />
@@ -1956,6 +1992,11 @@ function Settings() {
                 <div style=${{ marginTop: ".3rem" }}><button className="linkbtn" style=${{ fontWeight: 500 }} onClick=${function () { setPhStep("idle"); }}>Wrong number?</button></div>`}
           </div>`}
       </div>
+      ${pushCanWork() && html`<div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Notifications</div>
+          <div className="muted" style=${{ fontSize: ".8rem" }}>${pushNeedsInstall() ? "On iPhone, first add Inner Circle to your home screen (Share, then Add to Home Screen), open it from there, then come back here." : pushOn ? "On. You will be told when family shares, comments or says hello." : "Get a buzz when family shares, comments or says hello."}</div></div>
+        <button role="switch" aria-checked=${pushOn} aria-label="Notifications" disabled=${pushBusy || pushNeedsInstall()} className=${"switch " + (pushOn ? "on" : "")} onClick=${togglePush}><i></i></button>
+      </div>`}
       <div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Larger text</div><div className="muted" style=${{ fontSize: ".8rem" }}>Bigger words and buttons</div></div>
         <button role="switch" aria-checked=${easy} aria-label="Larger text" className=${"switch " + (easy ? "on" : "")} onClick=${function () { setEasy(!easy); }}><i></i></button>
@@ -2456,6 +2497,11 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
   useEffect(function () { loadProfiles(); }, [loadProfiles, tick]);
 
   const bump = useCallback(function () { setTick(function (t) { return t + 1; }); }, []);
+  useEffect(function () {   /* keep this phone's notification address fresh */
+    if (!pushCanWork() || Notification.permission !== "granted" || lsGet("ic-push", "") !== "1") return;
+    navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); })
+      .then(function (sub) { if (sub) return pushSave(sub); }).catch(function () {});
+  }, [me.id]);
   const [groupNames, setGroupNames] = useState({});
   useEffect(function () {
     sb.from("groups").select("id,name").then(function (r) {
@@ -2617,7 +2663,6 @@ function App() {
   const [session, setSession] = useState(undefined);
   const [me, setMe] = useState(null);
   const [msg, setMsg] = useState("");
-  const [recovery, setRecovery] = useState(false);
   const [online, setOnline] = useState(navigator.onLine !== false);
   const [easy, setEasyState] = useState(function () { return lsGet("ic-easy", "0") === "1"; });
 
@@ -2639,7 +2684,6 @@ function App() {
     if (!configured) return;
     sb.auth.getSession().then(function (r) { setSession(r.data.session); });
     const res = sb.auth.onAuthStateChange(function (event, s) {
-      if (event === "PASSWORD_RECOVERY") setRecovery(true);
       setSession(s);
     });
     return function () { res.data.subscription.unsubscribe(); };
@@ -2663,7 +2707,6 @@ function App() {
   if (!configured) body = html`<${NotConfigured} />`;
   else if (session === undefined) body = html`<div className="center muted" style=${{ padding: "5rem 1rem" }}>Loading...</div>`;
   else if (!session) body = html`<${AuthScreen} toast=${toast} easy=${easy} setEasy=${setEasy} />`;
-  else if (recovery) body = html`<${NewPassword} toast=${toast} done=${function () { setRecovery(false); }} />`;
   else if (!me) body = html`<div className="center muted" style=${{ padding: "5rem 1rem" }}>Loading...</div>`;
   else if (me.status !== "approved") body = html`<${Waiting} me=${me} reloadMe=${loadMe} />`;
   else body = html`<${Shell} me=${me} toast=${toast} reloadMe=${loadMe} easy=${easy} setEasy=${setEasy} />`;

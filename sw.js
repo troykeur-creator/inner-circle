@@ -1,6 +1,6 @@
 // Tiny service worker: lets Inner Circle open instantly and keeps the app shell available offline.
 // Photos and family data are never cached here; they always come fresh from your private database.
-const CACHE = "inner-circle-v14";
+const CACHE = "inner-circle-v15";
 const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.json", "icon.svg",
   "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
@@ -40,4 +40,25 @@ self.addEventListener("fetch", (e) => {
       })
       .catch(() => caches.match(req).then((hit) => hit || caches.match("index.html")))
   );
+});
+
+// Push notifications: shows a short message when the family shares something.
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title: "Inner Circle", body: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(d.title || "Inner Circle", {
+    body: d.body || "",
+    tag: d.tag || "inner-circle",
+    icon: "icon-192.png",
+    badge: "icon-192.png",
+    data: { url: d.url || "./" },
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    for (const c of list) { if ("focus" in c) return c.focus(); }
+    return self.clients.openWindow((e.notification.data && e.notification.data.url) || "./");
+  }));
 });
