@@ -114,10 +114,23 @@ async function pushSave(sub) {
   const r = await sb.rpc("save_push_sub", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
   if (r.error) throw r.error;
 }
+function swReady() {   /* never wait forever for the service worker */
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise(function (_, rej) { setTimeout(function () { rej(new Error("The app helper has not started yet. Close the app completely, reopen it, and try again.")); }, 8000); }),
+  ]);
+}
+function pushWhy(e) {   /* plain-words reason for a failure */
+  const m = String((e && (e.message || e.details)) || e || "");
+  if (/save_push_sub|function .* does not exist|schema cache|relation|42883|PGRST/i.test(m)) return "The database is missing a step (run push.sql in the Supabase SQL Editor). Detail: " + m.slice(0, 120);
+  if (/not allowed|denied|permission/i.test(m)) return "The phone refused permission. Allow notifications for Inner Circle in the phone settings. Detail: " + m.slice(0, 100);
+  if (/push service|registration failed|AbortError|network/i.test(m)) return "The phone could not reach its push service. Check the connection and try again. Detail: " + m.slice(0, 100);
+  return m ? m.slice(0, 160) : "Unknown problem.";
+}
 async function pushEnable() {
   const perm = await Notification.requestPermission();
   if (perm !== "granted") return perm;
-  const reg = await navigator.serviceWorker.ready;
+  const reg = await swReady();
   let sub = await reg.pushManager.getSubscription();
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC) });
   await pushSave(sub);
@@ -127,7 +140,7 @@ async function pushEnable() {
 }
 async function pushDisable() {
   lsSet("ic-push", "0");
-  const reg = await navigator.serviceWorker.ready;
+  const reg = await swReady();
   const sub = await reg.pushManager.getSubscription();
   if (sub) {
     try { await sb.rpc("drop_push_sub", { p_endpoint: sub.endpoint }); } catch (e) {}
@@ -827,7 +840,7 @@ function PushAsk() {
       const r = await pushEnable();
       if (r === "granted") toast("Notifications are on.");
       else toast("No problem. You can turn them on later in Me, then the gear icon.");
-    } catch (e) { toast("Could not turn on notifications. You can try again in Me, then the gear icon."); }
+    } catch (e) { toast("Could not turn on notifications. Open Me, then the gear icon, and try the Notifications switch to see why."); }
     lsSet("ic-push-ask", "1"); setShow(false);
   }
   return html`<div className="pcard slim">
@@ -2878,17 +2891,18 @@ function Settings() {
   const [arch, setArch] = useState("");
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [pushErr, setPushErr] = useState("");
   useEffect(function () { pushIsOn().then(setPushOn); }, []);
   async function togglePush() {
-    setPushBusy(true);
+    setPushBusy(true); setPushErr("");
     try {
       if (pushOn) { await pushDisable(); setPushOn(false); toast("Notifications are off on this phone."); }
       else {
         const r = await pushEnable();
         if (r === "granted") { setPushOn(true); toast("Notifications are on."); }
-        else toast("Your phone blocked notifications. Allow them for Inner Circle in your phone's settings, then try again.");
+        else { toast("Your phone blocked notifications."); setPushErr("Your phone is blocking notifications for Inner Circle" + (isIOS() ? ". On iPhone: Settings, Notifications, Inner Circle, Allow Notifications." : ". On Android: long-press the Inner Circle icon, App info, Notifications, turn on. If you use it in Chrome instead of the installed app: Chrome menu, Settings, Site settings, Notifications, allow this site.")); }
       }
-    } catch (e) { toast("Could not turn on notifications. Please try again."); }
+    } catch (e) { toast("Could not turn on notifications."); setPushErr(pushWhy(e)); }
     setPushBusy(false);
   }
   const [curPhone, setCurPhone] = useState(null);
@@ -3027,7 +3041,8 @@ function Settings() {
         <div className="grow"><div style=${{ fontWeight: 600 }}>Notifications</div>
           <div className="muted" style=${{ fontSize: ".8rem" }}>${pushNeedsInstall() ? "On iPhone, first add Inner Circle to your home screen (Share, then Add to Home Screen), open it from there, then come back here." : pushOn ? "On. You will be told when family shares, comments or says hello." : "Get a buzz when family shares, comments or says hello."}</div></div>
         <button role="switch" aria-checked=${pushOn} aria-label="Notifications" disabled=${pushBusy || pushNeedsInstall()} className=${"switch " + (pushOn ? "on" : "")} onClick=${togglePush}><i></i></button>
-      </div>`}
+      </div>
+      ${pushErr && html`<div role="alert" style=${{ margin: "0 1rem .8rem", padding: ".7rem .9rem", borderRadius: ".7rem", background: "#ffe1d8", color: "#7a2a10", fontSize: ".85rem" }}>${pushErr}</div>`}`}
       <div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Larger text</div><div className="muted" style=${{ fontSize: ".8rem" }}>Bigger words and buttons</div></div>
         <button role="switch" aria-checked=${easy} aria-label="Larger text" className=${"switch " + (easy ? "on" : "")} onClick=${function () { setEasy(!easy); }}><i></i></button>
