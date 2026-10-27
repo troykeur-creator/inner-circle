@@ -1,6 +1,6 @@
 // Tiny service worker: lets Inner Circle open instantly and keeps the app shell available offline.
 // Photos and family data are never cached here; they always come fresh from your private database.
-const CACHE = "inner-circle-v23";
+const CACHE = "inner-circle-v25";
 const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.json", "icon.svg",
   "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
@@ -32,7 +32,7 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(req)
       .then((res) => {
-        if (res.ok) {
+        if (res.ok && !url.search) {   // never keep invite or event links in the cache
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy));
         }

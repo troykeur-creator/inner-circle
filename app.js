@@ -890,21 +890,24 @@ function Home() {
   const mine = groups[me.id];
   const mineSeen = mine ? mine.every(function (x) { return seen.has(x); }) : false;
 
-  const header = html`<div className="top"><div className="brand"><${Logo} />Inner Circle</div>
-    <button className="ibtn" aria-label=${unread ? "Activity, new" : "Activity"} onClick=${function () { push({ name: "activity" }); }}><${Icon} n="heart" s=${26} />${unread && html`<span className="badge"></span>`}</button></div>`;
+  const header = html`<div className="top compact"><div className="brand"><${Logo} />Inner Circle</div>
+    <div className="row" style=${{ gap: 0 }}>
+      ${posts && !noteBy[me.id] && html`<button className="notepill" onClick=${function () { setNoteSheet({ own: true, note: null }); }}>+ Note</button>`}
+      <button className="ibtn" aria-label=${unread ? "Activity, new" : "Activity"} onClick=${function () { push({ name: "activity" }); }}><${Icon} n="heart" s=${24} />${unread && html`<span className="badge"></span>`}</button>
+    </div></div>`;
 
   if (err && !posts) return html`<div>${header}<${Failed} what="your feed" onRetry=${load} /></div>`;
   if (!posts) return html`<div>${header}<div className="center muted" style=${{ padding: "4rem 1rem" }}>Loading your Inner Circle...</div></div>`;
   return html`
     <div>
       ${header}
-      <div className="stories">
+      <div className=${"stories" + (Object.keys(noteBy).length ? " hasnote" : "")}>
         <div className="story">
-          <button className=${"tbub" + (myNote ? "" : " add")} onClick=${function () { setNoteSheet({ own: true, note: myNote }); }}>${myNote ? myNote.body : "+ Note"}</button>
+          ${myNote && html`<button className="tbub" onClick=${function () { setNoteSheet({ own: true, note: myNote }); }}>${myNote.body}</button>`}
           <button className="storybtn" aria-label=${mine ? "View your day" : "Add to your day"}
             onClick=${function () { mine ? push({ name: "story", authorId: me.id }) : push({ name: "new", day: true }); }}>
-            <div style=${{ position: "relative", width: "4.25rem", margin: "0 auto" }}>
-              <div className=${"ring " + (mine ? (mineSeen ? "seen" : "") : "none")}><${Avatar} id=${me.id} name=${me.display_name} size=${60} /></div>
+            <div style=${{ position: "relative", width: "3.75rem", margin: "0 auto" }}>
+              <div className=${"ring " + (mine ? (mineSeen ? "seen" : "") : "none")}><${Avatar} id=${me.id} name=${me.display_name} size=${52} /></div>
               <div className="plus"><${Icon} n="plusSmall" s=${12} sw=${3.5} color="#fff" /></div>
             </div>
             <div className="slabel">Your day</div>
@@ -916,7 +919,7 @@ function Home() {
           return html`<div className="story" key=${g.id}>
             ${note && html`<button className="tbub" onClick=${function () { setNoteSheet({ own: false, note: note }); }}>${note.body}</button>`}
             <button className="storybtn" aria-label=${g.hasStory ? "View " + nm(p) + "'s day" : "Read " + nm(p) + "'s note"} onClick=${function () { g.hasStory ? push({ name: "story", authorId: g.id }) : setNoteSheet({ own: false, note: note }); }}>
-              <div className=${"ring " + (g.hasStory ? (g.allSeen ? "seen" : "") : "none")}><${Avatar} id=${g.id} name=${p.display_name} size=${60} /></div>
+              <div className=${"ring " + (g.hasStory ? (g.allSeen ? "seen" : "") : "none")}><${Avatar} id=${g.id} name=${p.display_name} size=${52} /></div>
               <div className="slabel" style=${{ color: g.hasStory && g.allSeen ? "var(--muted)" : "inherit" }}>${nm(p)}</div>
             </button>
           </div>`;
@@ -1971,7 +1974,7 @@ function evState(ev) {
 }
 function icsFor(ev) {
   const z = function (iso) { return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); };
-  const esc = function (t) { return String(t || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\;"); };
+  const esc = function (t) { return String(t || "").replace(/\r/g, "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;"); };
   const end = ev.ends_at || new Date(new Date(ev.starts_at).getTime() + 2 * 3600000).toISOString();
   return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Inner Circle//EN", "BEGIN:VEVENT", "UID:" + ev.id + "@innercircle", "DTSTAMP:" + z(new Date().toISOString()),
     "DTSTART:" + z(ev.starts_at), "DTEND:" + z(end), "SUMMARY:" + esc(ev.title), "LOCATION:" + esc([ev.place, ev.address].filter(Boolean).join(", ")), "DESCRIPTION:" + esc(ev.details), "END:VEVENT", "END:VCALENDAR"].join("\r\n");
@@ -2317,9 +2320,11 @@ function HomeCelebrate() {
     sb.from("events").select("id,title,starts_at,ends_at,place,album_id").gte("starts_at", from).lte("starts_at", to).order("starts_at", { ascending: true }).limit(20)
       .then(function (r) { setEvs(r.data || []); }).catch(function () {});
   }, [tick]);
-  const today = buildCelebrations(profiles, an.rows || []).filter(function (c) { return c.days === 0; }).slice(0, 3);
-  if (!today.length && !evs.length) return null;
-  const shown = evs.slice(0, 5);
+  const all = buildCelebrations(profiles, an.rows || []);
+  const today = all.filter(function (c) { return c.days === 0; }).slice(0, 3);
+  const soon = all.filter(function (c) { return c.days > 0 && c.days <= 30; }).slice(0, 2);
+  if (!today.length && !evs.length && !soon.length) return null;
+  const many = evs.length > 1;
   return html`<div>
     ${today.map(function (c) {
       return html`<div className="pcard slim" key=${c.kind + c.key}>
@@ -2328,17 +2333,27 @@ function HomeCelebrate() {
         <button className="btn sm" onClick=${function () { setCard(c); }}>Wish</button>
       </div>`;
     })}
-    ${shown.map(function (e) {
-      const st = evState(e);
-      return html`<div key=${e.id}>
-        <button className="newscard evsoon" onClick=${function () { push({ name: "event", id: e.id }); }}>
-          <span className="row"><${DateBlock} iso=${e.starts_at} /><span className="grow" style=${{ minWidth: 0 }}><b style=${{ display: "block", color: "#2f5d50" }}>${e.title}</b><span className="muted" style=${{ fontSize: ".85rem" }}>${fmtEvTime(e.starts_at)}${e.place ? " · " + e.place : ""}</span></span>
-            <span className=${"pillx" + (st.live ? " live" : "")}>${st.label}</span></span>
-        </button>
-        ${e.album_id && daysAway(new Date(e.starts_at)) <= 0 && html`<div style=${{ padding: "0 1rem" }}><button className="btn block" onClick=${function () { push({ name: "new", albumId: e.album_id, albumName: e.title }); }}>Add photos to ${e.title}</button></div>`}
-      </div>`;
-    })}
-    ${evs.length > shown.length && html`<div style=${{ padding: "0 1rem" }}><button className="linkbtn" onClick=${function () { push({ name: "events" }); }}>See all ${evs.length} events</button></div>`}
+    ${(evs.length > 0 || soon.length > 0) && html`<section className="comingup" aria-label="Coming up">
+      <div className="cuh"><b>Coming up</b>
+        ${evs.length > 0 ? html`<button className="linkbtn" onClick=${function () { push({ name: "events" }); }}>All events</button>` : html`<button className="linkbtn" onClick=${function () { push({ name: "celebrations" }); }}>See all</button>`}</div>
+      ${evs.length > 0 && html`<div className=${"evstrip" + (many ? " many" : "")}>${evs.map(function (e) {
+        const st = evState(e);
+        return html`<button key=${e.id} className="evmini" onClick=${function () { push({ name: "event", id: e.id }); }}>
+          <${DateBlock} iso=${e.starts_at} />
+          <span className="grow" style=${{ minWidth: 0, textAlign: "left" }}>
+            <b className="one">${e.title}</b>
+            <span className="muted one" style=${{ fontSize: ".8rem" }}>${fmtEvTime(e.starts_at)}${e.place ? " · " + e.place : ""}</span>
+            <span className=${"pillx" + (st.live ? " live" : "")} style=${{ marginTop: ".2rem", display: "inline-block" }}>${st.label}</span>
+          </span></button>`;
+      })}</div>`}
+      ${evs.filter(function (e) { return e.album_id && daysAway(new Date(e.starts_at)) <= 0; }).map(function (e) {
+        return html`<button key=${"ph" + e.id} className="btn block" style=${{ marginTop: ".5rem" }} onClick=${function () { push({ name: "new", albumId: e.album_id, albumName: e.title }); }}>Add photos to ${e.title}</button>`;
+      })}
+      ${soon.map(function (c) {
+        return html`<button key=${c.kind + c.key} className="cline" onClick=${function () { push({ name: "celebrations" }); }}>
+          <span aria-hidden="true">${c.kind === "birthday" ? "🎂" : "💍"}</span><span className="grow one" style=${{ textAlign: "left" }}>${c.title}</span><span className="away">${awayLabel(c.days)}</span></button>`;
+      })}
+    </section>`}
     ${card && html`<${WishSheet} c=${card} onClose=${function () { setCard(null); }} onEdit=${function () { setCard(null); push({ name: "celebrations" }); }} />`}
   </div>`;
 }
@@ -2959,8 +2974,8 @@ function NoteSheet({ target, onClose, onDone }) {
 function PromptCard({ prompt, answers }) {
   const { me, push } = useApp();
   const done = answers.some(function (a) { return a.author_id === me.id; });
-  return html`<div className="pcard slim">
-    <div className="grow"><div className="pk">Add yours${answers.length > 0 ? " · " + answers.length + (answers.length === 1 ? " answer" : " answers") : ""}</div>
+  return html`<div className=${"pcard slim" + (done ? " tiny" : "")}>
+    <div className="grow"><div className="pk">${done ? "Family question" : "Add yours"}${answers.length > 0 ? " · " + answers.length + (answers.length === 1 ? " answer" : " answers") : ""}</div>
       <div className="pt"><${Linkify} text=${prompt.body} /></div></div>
     ${done ? html`<button className="btn sm grey" onClick=${function () { push({ name: "prompt", id: prompt.id }); }}>See ${answers.length}</button>`
       : html`<button className="btn sm" onClick=${function () { push({ name: "new", promptId: prompt.id, promptText: prompt.body }); }}>Add yours</button>`}
@@ -3073,6 +3088,8 @@ function NewsItem({ item, onDeleted }) {
 function NewsCard({ item }) {
   const { push } = useApp();
   const fresh = lsGet("ic-news-seen", "") !== item.id;
+  if (!fresh) return html`<button className="newscard tiny" onClick=${function () { push({ name: "news" }); }}>
+    <span className="row"><${Icon} n="news" s=${16} sw=${2} color="#2f5d50" /><b className="grow" style=${{ color: "#2f5d50", fontSize: ".9rem" }}>Family news</b><span className="muted" style=${{ fontSize: ".8rem" }}>Read again</span><${Icon} n="chev" s=${16} sw=${2} color="#6b6b6b" /></span></button>`;
   return html`<button className="newscard" onClick=${function () { push({ name: "news" }); }}>
     <span className="row"><${Icon} n="news" s=${18} sw=${2} color="#2f5d50" /><b className="grow" style=${{ color: "#2f5d50" }}>Family news</b>${fresh && html`<span className="pill">New</span>`}<${Icon} n="chev" s=${18} sw=${2} color="#6b6b6b" /></span>
     ${item.body && html`<span className="clamp">${item.body}</span>`}
