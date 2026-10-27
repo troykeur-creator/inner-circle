@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#2f5d50"/>
-  <circle cx="256" cy="256" r="158" fill="none" stroke="#faf6f0" stroke-width="23"/>
-  <circle cx="256" cy="256" r="82" fill="none" stroke="#faf6f0" stroke-width="23"/>
-  <circle cx="256" cy="256" r="25" fill="#d98a3d"/>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0fc0b0"/><stop offset=".55" stop-color="#0a8fb5"/><stop offset="1" stop-color="#4a3fd8"/></linearGradient></defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <g transform="translate(256 256) scale(1) translate(-256 -256)">
+  <circle cx="256" cy="256" r="158" fill="none" stroke="#ffffff" stroke-width="23"/>
+  <circle cx="256" cy="256" r="82" fill="none" stroke="#ffffff" stroke-width="23"/>
+  <circle cx="256" cy="256" r="28" fill="#ff6b4a"/></g>
 </svg>

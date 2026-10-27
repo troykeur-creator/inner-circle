@@ -19,7 +19,7 @@ const VIDEO_BUDGET_BYTES = 18 * 1048576;  // long clips are squeezed to fit abou
 const MAX_VIDEO_BYTES = 12 * 1048576;  // clips bigger than this are re-encoded smaller
 
 /* =====================  helpers  ===================== */
-const PALETTE = ["#2f5d50", "#5b7aa6", "#8a5a7a", "#b5651d", "#6b8f5e", "#7a6a4f", "#4f6f8f"];
+const PALETTE = ["#0879a0", "#4a3fd8", "#d9411f", "#0a8a80", "#b02a66", "#a85f00", "#2f63c4"];
 function colorFor(key) {
   const s = String(key || "?");
   let h = 0;
@@ -464,7 +464,7 @@ function Icon({ n, s, fill, sw, color }) {
 }
 function Logo({ s }) {
   const z = s || 28;
-  return html`<svg width=${z} height=${z} viewBox="0 0 24 24" fill="none" stroke="#2f5d50" strokeWidth="2" aria-hidden="true">
+  return html`<svg width=${z} height=${z} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
     <circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="5.5"></circle><circle cx="12" cy="12" r="1.6" fill="#d98a3d" stroke="none"></circle></svg>`;
 }
 function Avatar({ id, name, size }) {
@@ -591,7 +591,7 @@ function AuthScreen({ toast, easy, setEasy }) {
       <button className="aa" aria-label=${easy ? "Switch to standard text" : "Switch to larger text"} aria-pressed=${easy} onClick=${function () { setEasy(!easy); }}>Aa</button>
       <div className="center">
         <${Logo} s=${64} />
-        <h1 className="serif" style=${{ fontSize: "2.4rem", letterSpacing: "-.02em", color: "#2f5d50", margin: ".4rem 0 .2rem" }}>Inner Circle</h1>
+        <h1 className="serif" style=${{ fontSize: "2.4rem", letterSpacing: "-.02em", color: "#0879a0", margin: ".4rem 0 .2rem" }}>Inner Circle</h1>
         <p className="muted" style=${{ margin: 0 }}>Your people. Nobody else.</p>
       </div>
       ${!chosen && html`<div className="stack" style=${{ marginTop: "2rem" }}>
@@ -637,7 +637,7 @@ function Waiting({ me, reloadMe }) {
   return html`
     <div className="authwrap center" style=${{ justifyContent: "center", alignItems: "center" }}>
       <${Logo} s=${56} />
-      <h1 className="serif" style=${{ color: "#2f5d50", margin: ".6rem 0" }}>${removed ? "Access ended" : "Almost in" + (me.display_name ? ", " + me.display_name : "")}</h1>
+      <h1 className="serif" style=${{ color: "#0879a0", margin: ".6rem 0" }}>${removed ? "Access ended" : "Almost in" + (me.display_name ? ", " + me.display_name : "")}</h1>
       <p className="muted">${removed ? "The family organizer has ended your access to Inner Circle." : "The family organizer has been asked to welcome you. This screen updates when they do, or tap the button to check."}</p>
       ${!removed && html`<div><button className="btn" onClick=${reloadMe}>Check again</button></div>`}
       <button className="linkbtn" onClick=${signOutClean}>Sign out</button>
@@ -801,7 +801,7 @@ function GettingStarted({ hasPosts }) {
     </div>`;
   }
   return html`<div className="welcomecard">
-    <h2 className="serif" style=${{ color: "#2f5d50", margin: 0 }}>Welcome, ${me.display_name}</h2>
+    <h2 className="serif" style=${{ color: "#0879a0", margin: 0 }}>Welcome, ${me.display_name}</h2>
     <p style=${{ margin: ".4rem 0 .9rem" }}>Inner Circle is only as good as the people in it. Start by inviting the family, then share your first moment.</p>
     <div className="row">
       <button className="btn grow" onClick=${function () { openInvite(); }}>Invite your family</button>
@@ -934,7 +934,7 @@ function Home() {
       ${me.role === "admin" && memberCount <= 1 && posts && html`<${GettingStarted} hasPosts=${posts.length > 0} />`}
       ${posts.length === 0 && !(me.role === "admin" && memberCount <= 1) && html`
         <div className="center" style=${{ padding: "3rem 1.5rem" }}>
-          <h2 className="serif" style=${{ color: "#2f5d50" }}>It is quiet in here</h2>
+          <h2 className="serif" style=${{ color: "#0879a0" }}>It is quiet in here</h2>
           <p className="muted">Be the first to share a moment, or say hello to someone.</p>
           <div className="row" style=${{ justifyContent: "center" }}>
             <button className="btn" onClick=${function () { push({ name: "new" }); }}>Share something</button>
@@ -1112,8 +1112,8 @@ function Comments({ postId }) {
           <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".1rem" }}>${agoShort(post.created_at)}</div>
         </div></div>`}
       ${list && tops.length === 0 && html`<div className="cmtempty">
-        <div className="bub"><${Icon} n="comment" s=${30} sw=${1.6} color="#2f5d50" /></div>
-        <div className="serif" style=${{ fontSize: "1.25rem", color: "#2f5d50" }}>Start the conversation</div>
+        <div className="bub"><${Icon} n="comment" s=${30} sw=${1.6} color="#0879a0" /></div>
+        <div className="serif" style=${{ fontSize: "1.25rem", color: "#0879a0" }}>Start the conversation</div>
         <div className="muted" style=${{ margin: ".2rem 0 .9rem" }}>Tap a quick reaction or write a few kind words.</div>
         <div className="qr">${QUICK.map(function (em) { return html`<button key=${em} aria-label=${"Send " + em} onClick=${function () { sendBody(em); }}>${em}</button>`; })}</div>
       </div>`}
@@ -2121,7 +2121,7 @@ function Events() {
     ${!events && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
     ${events && upcoming.length === 0 && html`<div className="cmtempty">
       <div className="bub"><span style=${{ fontSize: "1.8rem" }}>🎉</span></div>
-      <div className="serif" style=${{ fontSize: "1.25rem", color: "#2f5d50" }}>Plan something together</div>
+      <div className="serif" style=${{ fontSize: "1.25rem", color: "#0879a0" }}>Plan something together</div>
       <div className="muted" style=${{ margin: ".2rem 0 1rem" }}>A shower, a reunion, Thanksgiving. Everyone can RSVP, sign up to bring something, and share photos.</div>
       <button className="btn" onClick=${function () { setForm(true); }}>Create the first event</button>
     </div>`}
@@ -2269,7 +2269,7 @@ function EventScreen({ id }) {
     <div className="evhero">
       <${DateBlock} iso=${ev.starts_at} />
       <div className="grow" style=${{ minWidth: 0 }}>
-        <h2 className="serif" style=${{ margin: 0, color: "#2f5d50", fontSize: "1.5rem", lineHeight: 1.15, overflowWrap: "anywhere" }}>${ev.title}</h2>
+        <h2 className="serif" style=${{ margin: 0, color: "#0879a0", fontSize: "1.5rem", lineHeight: 1.15, overflowWrap: "anywhere" }}>${ev.title}</h2>
         <div style=${{ marginTop: ".3rem" }}><span className=${"pillx" + (st.live ? " live" : st.past ? " old" : "")}>${st.label}</span></div>
       </div>
     </div>
@@ -2626,7 +2626,7 @@ function People() {
     .sort(function (a, b) { return nm(a).localeCompare(nm(b)); });
   const admin = me.role === "admin";
 
-  const header = html`<div className="top"><div><h1 className="serif" style=${{ color: "#2f5d50", fontSize: "1.7rem" }}>Your Inner Circle</h1></div>
+  const header = html`<div className="top"><div><h1 className="serif" style=${{ color: "#0879a0", fontSize: "1.7rem" }}>Your Inner Circle</h1></div>
     ${admin && html`<button className="btn sm grey" style=${{ position: "relative" }} onClick=${function () { push({ name: "organizer" }); }}>Manage${pendingCount > 0 ? html`<span className="badge" style=${{ top: "-.2rem", right: "-.2rem" }}></span>` : ""}</button>`}</div>`;
 
   if (err && !last) return html`<div>${header}<${Failed} what="your circle" onRetry=${load} /></div>`;
@@ -2810,7 +2810,7 @@ function Memories() {
     setPosts(full.data || []);
   }, []);
   useEffect(function () { load(); }, [load, tick]);
-  const header = html`<div><div className="top"><div><h1 className="serif" style=${{ color: "#2f5d50", fontSize: "1.7rem" }}>Memories</h1></div></div>
+  const header = html`<div><div className="top"><div><h1 className="serif" style=${{ color: "#0879a0", fontSize: "1.7rem" }}>Memories</h1></div></div>
     <div className="seg" role="tablist"><button role="tab" aria-selected=${view === "day"} className=${view === "day" ? "on" : ""} onClick=${function () { setView("day"); }}>On this day</button><button role="tab" aria-selected=${view === "albums"} className=${view === "albums" ? "on" : ""} onClick=${function () { setView("albums"); }}>Albums</button></div></div>`;
   if (view === "albums") return html`<div>${header}<${AlbumsList} /></div>`;
   if (err && !posts) return html`<div>${header}<${Failed} what="your memories" onRetry=${load} /></div>`;
@@ -3043,7 +3043,7 @@ function Settings() {
         <button className="btn sm grey" disabled=${!!arch} onClick=${doArchive}>Download</button>
       </div>
       <div className="promise">
-        <h3 className="serif" style=${{ color: "#2f5d50" }}>Our promises</h3>
+        <h3 className="serif" style=${{ color: "#0879a0" }}>Our promises</h3>
         <ul>
           <li>Only invited family and friends. Never the public.</li>
           <li>Newest first. No algorithm deciding what you see.</li>
@@ -3334,9 +3334,9 @@ function NewsCard({ item }) {
   const { push } = useApp();
   const fresh = lsGet("ic-news-seen", "") !== item.id;
   if (!fresh) return html`<button className="newscard tiny" onClick=${function () { push({ name: "news" }); }}>
-    <span className="row"><${Icon} n="news" s=${16} sw=${2} color="#2f5d50" /><b className="grow" style=${{ color: "#2f5d50", fontSize: ".9rem" }}>Family news</b><span className="muted" style=${{ fontSize: ".8rem" }}>Read again</span><${Icon} n="chev" s=${16} sw=${2} color="#6b6b6b" /></span></button>`;
+    <span className="row"><${Icon} n="news" s=${16} sw=${2} color="#0879a0" /><b className="grow" style=${{ color: "#0879a0", fontSize: ".9rem" }}>Family news</b><span className="muted" style=${{ fontSize: ".8rem" }}>Read again</span><${Icon} n="chev" s=${16} sw=${2} color="#6b6b6b" /></span></button>`;
   return html`<button className="newscard" onClick=${function () { push({ name: "news" }); }}>
-    <span className="row"><${Icon} n="news" s=${18} sw=${2} color="#2f5d50" /><b className="grow" style=${{ color: "#2f5d50" }}>Family news</b>${fresh && html`<span className="pill">New</span>`}<${Icon} n="chev" s=${18} sw=${2} color="#6b6b6b" /></span>
+    <span className="row"><${Icon} n="news" s=${18} sw=${2} color="#0879a0" /><b className="grow" style=${{ color: "#0879a0" }}>Family news</b>${fresh && html`<span className="pill">New</span>`}<${Icon} n="chev" s=${18} sw=${2} color="#6b6b6b" /></span>
     ${item.body && html`<span className="clamp">${item.body}</span>`}
     ${item.audio_path && html`<span className="muted" style=${{ fontSize: ".8rem", display: "block", marginTop: ".2rem" }}>Includes a voice memo</span>`}
   </button>`;
@@ -3702,7 +3702,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
 /* =====================  app root  ===================== */
 function NotConfigured() {
   return html`<div className="authwrap" style=${{ justifyContent: "center" }}>
-    <h1 className="serif" style=${{ color: "#2f5d50" }}>Almost there</h1>
+    <h1 className="serif" style=${{ color: "#0879a0" }}>Almost there</h1>
     <p>Inner Circle is installed, but it is not connected to your private database yet.</p>
     <p>Open <b>config.js</b> and paste in your two Supabase values. Step 6 in SETUP.md shows exactly where to find them.</p></div>`;
 }
