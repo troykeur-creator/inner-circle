@@ -2309,16 +2309,17 @@ function HomeCelebrate() {
   const { profiles, push } = useApp();
   const an = useAnniversaries();
   const { tick } = useApp();
-  const [ev, setEv] = useState(null);
+  const [evs, setEvs] = useState([]);
   const [card, setCard] = useState(null);
   useEffect(function () {
-    sb.from("events").select("id,title,starts_at,ends_at,place,album_id").gte("starts_at", new Date(Date.now() - 6 * 3600000).toISOString()).order("starts_at", { ascending: true }).limit(1)
-      .then(function (r) { setEv((r.data || [])[0] || null); }).catch(function () {});
+    const from = new Date(Date.now() - 6 * 3600000).toISOString();
+    const to = new Date(Date.now() + 90 * 86400000).toISOString();
+    sb.from("events").select("id,title,starts_at,ends_at,place,album_id").gte("starts_at", from).lte("starts_at", to).order("starts_at", { ascending: true }).limit(20)
+      .then(function (r) { setEvs(r.data || []); }).catch(function () {});
   }, [tick]);
   const today = buildCelebrations(profiles, an.rows || []).filter(function (c) { return c.days === 0; }).slice(0, 3);
-  const evSoon = ev && daysAway(new Date(ev.starts_at)) <= 45 ? ev : null;
-  const st = evSoon ? evState(evSoon) : null;
-  if (!today.length && !evSoon) return null;
+  if (!today.length && !evs.length) return null;
+  const shown = evs.slice(0, 5);
   return html`<div>
     ${today.map(function (c) {
       return html`<div className="pcard slim" key=${c.kind + c.key}>
@@ -2327,11 +2328,17 @@ function HomeCelebrate() {
         <button className="btn sm" onClick=${function () { setCard(c); }}>Wish</button>
       </div>`;
     })}
-    ${evSoon && html`<button className="newscard evsoon" onClick=${function () { push({ name: "event", id: evSoon.id }); }}>
-      <span className="row"><${DateBlock} iso=${evSoon.starts_at} /><span className="grow" style=${{ minWidth: 0 }}><b style=${{ display: "block", color: "#2f5d50" }}>${evSoon.title}</b><span className="muted" style=${{ fontSize: ".85rem" }}>${fmtEvTime(evSoon.starts_at)}${evSoon.place ? " · " + evSoon.place : ""}</span></span>
-        <span className=${"pillx" + (st.live ? " live" : "")}>${st.label}</span></span>
-    </button>`}
-    ${evSoon && evSoon.album_id && daysAway(new Date(evSoon.starts_at)) <= 0 && html`<div style=${{ padding: "0 1rem" }}><button className="btn block" onClick=${function () { push({ name: "new", albumId: evSoon.album_id, albumName: evSoon.title }); }}>Add photos to ${evSoon.title}</button></div>`}
+    ${shown.map(function (e) {
+      const st = evState(e);
+      return html`<div key=${e.id}>
+        <button className="newscard evsoon" onClick=${function () { push({ name: "event", id: e.id }); }}>
+          <span className="row"><${DateBlock} iso=${e.starts_at} /><span className="grow" style=${{ minWidth: 0 }}><b style=${{ display: "block", color: "#2f5d50" }}>${e.title}</b><span className="muted" style=${{ fontSize: ".85rem" }}>${fmtEvTime(e.starts_at)}${e.place ? " · " + e.place : ""}</span></span>
+            <span className=${"pillx" + (st.live ? " live" : "")}>${st.label}</span></span>
+        </button>
+        ${e.album_id && daysAway(new Date(e.starts_at)) <= 0 && html`<div style=${{ padding: "0 1rem" }}><button className="btn block" onClick=${function () { push({ name: "new", albumId: e.album_id, albumName: e.title }); }}>Add photos to ${e.title}</button></div>`}
+      </div>`;
+    })}
+    ${evs.length > shown.length && html`<div style=${{ padding: "0 1rem" }}><button className="linkbtn" onClick=${function () { push({ name: "events" }); }}>See all ${evs.length} events</button></div>`}
     ${card && html`<${WishSheet} c=${card} onClose=${function () { setCard(null); }} onEdit=${function () { setCard(null); push({ name: "celebrations" }); }} />`}
   </div>`;
 }
