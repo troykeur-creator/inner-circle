@@ -527,6 +527,7 @@ function toE164(raw) {
 function AuthScreen({ toast, easy, setEasy }) {
   const urlCode = inviteFromUrl();
   const [mode, setMode] = useState(urlCode ? "up" : "in");   // in | up
+  const [chosen, setChosen] = useState(!!urlCode);            // first visit: ask which door before showing a form
   const [step, setStep] = useState("details");                // details | code
   const [f, setF] = useState({ name: "", phone: "", code: urlCode, token: "" });
   const [busy, setBusy] = useState(false);
@@ -539,7 +540,7 @@ function AuthScreen({ toast, easy, setEasy }) {
     return function () { clearTimeout(t); };
   }, [wait]);
 
-  function go(m) { setMode(m); setStep("details"); }
+  function go(m) { setMode(m); setStep("details"); setChosen(true); }
 
   async function sendCode() {
     const phone = toE164(f.phone);
@@ -593,7 +594,12 @@ function AuthScreen({ toast, easy, setEasy }) {
         <h1 className="serif" style=${{ fontSize: "2.4rem", letterSpacing: "-.02em", color: "#2f5d50", margin: ".4rem 0 .2rem" }}>Inner Circle</h1>
         <p className="muted" style=${{ margin: 0 }}>Your people. Nobody else.</p>
       </div>
-      <form className="stack" onSubmit=${submit} style=${{ marginTop: "2rem" }}>
+      ${!chosen && html`<div className="stack" style=${{ marginTop: "2rem" }}>
+        <button className="btn block" style=${{ height: "3.6rem", fontSize: "1.05rem" }} onClick=${function () { go("in"); }}>I already have an account</button>
+        <button className="btn grey block" style=${{ height: "3.6rem", fontSize: "1.05rem" }} onClick=${function () { go("up"); }}>I was invited, I'm new</button>
+        <div className="muted center" style=${{ fontSize: ".85rem" }}>Not sure? If you have never opened Inner Circle on this phone, choose the second one.</div>
+      </div>`}
+      ${chosen && html`<form className="stack" onSubmit=${submit} style=${{ marginTop: "2rem" }}>
         ${phoneMode && step === "details" && html`
           ${mode === "up" && html`
             <label className="sr" htmlFor="a-name">Your name</label>
@@ -615,11 +621,11 @@ function AuthScreen({ toast, easy, setEasy }) {
             <button type="button" className="linkbtn" style=${{ fontWeight: 500 }} onClick=${function () { setStep("details"); }}>Wrong number?</button>
           </div>`}
         <button className="btn block" style=${{ height: "3.1rem" }} disabled=${busy}>${busy ? "One moment..." : phoneMode && step === "code" ? "Sign in" : title}</button>
-      </form>
+      </form>`}
       <div style=${{ flex: 1 }}></div>
       <div className="center" style=${{ borderTop: "1px solid var(--line)", paddingTop: "1rem" }}>
-        ${mode === "in" && html`<span>New here? <button className="linkbtn" onClick=${function () { go("up"); }}>Join with an invite</button></span>`}
-        ${mode === "up" && html`<span>Already a member? <button className="linkbtn" onClick=${function () { go("in"); }}>Sign in</button></span>`}
+        ${chosen && mode === "in" && html`<span>New here? <button className="linkbtn" onClick=${function () { go("up"); }}>Join with an invite</button></span>`}
+        ${chosen && mode === "up" && html`<span>Already a member? <button className="linkbtn" onClick=${function () { go("in"); }}>Sign in</button></span>`}
         <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".3rem" }}>Private. No ads. No algorithm. No strangers.</div>
       </div>
     </div>`;
@@ -1979,6 +1985,16 @@ async function addToCalendar(ev, toast) {
   document.body.appendChild(a); a.click(); a.remove();
   toast("Calendar file saved. Open it to add the event.");
 }
+async function shareEvent(ev, toast) {
+  const link = location.origin + location.pathname + "?event=" + encodeURIComponent(ev.id);
+  const text = ev.title + " on " + fmtEvDate(ev.starts_at) + ". Open in Inner Circle (family only, you will be asked to sign in):";
+  if (navigator.share) {
+    try { await navigator.share({ title: ev.title, text: text, url: link }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(text + " " + link); toast("Link copied"); }
+  catch (e) { window.prompt("Copy this link and send it:", text + " " + link); }
+}
 function DateBlock({ iso }) {
   const d = new Date(iso);
   return html`<div className="dateblock" aria-hidden="true"><span>${MONTHS_S[d.getMonth()]}</span><b>${d.getDate()}</b></div>`;
@@ -2257,7 +2273,10 @@ function EventScreen({ id }) {
       ${(ev.place || ev.address) && html`<div className="evline"><b>${ev.place || ev.address}</b>${ev.place && ev.address && html`<span>${ev.address}</span>`}
         <a className="linkbtn" href=${"https://www.google.com/maps/search/?api=1&query=" + mapQ} target="_blank" rel="noopener noreferrer">Open in maps</a></div>`}
       ${ev.details && html`<p style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: ".6rem 0 0" }}><${Linkify} text=${ev.details} /></p>`}
-      ${!st.past && html`<button className="linkbtn" style=${{ marginTop: ".4rem" }} onClick=${function () { addToCalendar(ev, toast); }}>Add to my calendar</button>`}
+      <div className="row" style=${{ gap: ".4rem", flexWrap: "wrap" }}>
+        ${!st.past && html`<button className="linkbtn" onClick=${function () { addToCalendar(ev, toast); }}>Add to my calendar</button>`}
+        <button className="linkbtn" onClick=${function () { shareEvent(ev, toast); }}>Share link with family</button>
+      </div>
     </div>
     ${!st.past && html`<div className="evsec">
       <div className="evh"><h3>Are you coming?</h3></div>
@@ -2293,7 +2312,7 @@ function HomeCelebrate() {
   const [ev, setEv] = useState(null);
   const [card, setCard] = useState(null);
   useEffect(function () {
-    sb.from("events").select("id,title,starts_at,ends_at,place").gte("starts_at", new Date(Date.now() - 6 * 3600000).toISOString()).order("starts_at", { ascending: true }).limit(1)
+    sb.from("events").select("id,title,starts_at,ends_at,place,album_id").gte("starts_at", new Date(Date.now() - 6 * 3600000).toISOString()).order("starts_at", { ascending: true }).limit(1)
       .then(function (r) { setEv((r.data || [])[0] || null); }).catch(function () {});
   }, [tick]);
   const today = buildCelebrations(profiles, an.rows || []).filter(function (c) { return c.days === 0; }).slice(0, 3);
@@ -2312,6 +2331,7 @@ function HomeCelebrate() {
       <span className="row"><${DateBlock} iso=${evSoon.starts_at} /><span className="grow" style=${{ minWidth: 0 }}><b style=${{ display: "block", color: "#2f5d50" }}>${evSoon.title}</b><span className="muted" style=${{ fontSize: ".85rem" }}>${fmtEvTime(evSoon.starts_at)}${evSoon.place ? " · " + evSoon.place : ""}</span></span>
         <span className=${"pillx" + (st.live ? " live" : "")}>${st.label}</span></span>
     </button>`}
+    ${evSoon && evSoon.album_id && daysAway(new Date(evSoon.starts_at)) <= 0 && html`<div style=${{ padding: "0 1rem" }}><button className="btn block" onClick=${function () { push({ name: "new", albumId: evSoon.album_id, albumName: evSoon.title }); }}>Add photos to ${evSoon.title}</button></div>`}
     ${card && html`<${WishSheet} c=${card} onClose=${function () { setCard(null); }} onEdit=${function () { setCard(null); push({ name: "celebrations" }); }} />`}
   </div>`;
 }
@@ -3280,6 +3300,17 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
     function onPop() { setStack(function (s) { return s.length > 1 ? s.slice(0, -1) : s; }); }
     window.addEventListener("popstate", onPop);
     return function () { window.removeEventListener("popstate", onPop); };
+  }, []);
+
+  /* open a shared event link (?event=...) once signed in */
+  useEffect(function () {
+    try {
+      const id = new URLSearchParams(location.search).get("event");
+      if (id && /^[0-9a-f-]{36}$/i.test(id)) {
+        history.replaceState({}, "", location.pathname);
+        push({ name: "event", id: id });
+      }
+    } catch (e) {}
   }, []);
 
   /* keep the feed where you left it */
