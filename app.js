@@ -246,6 +246,10 @@ function shrink(file, max) {
   });
 }
 
+const GIF_MAX = 8 * 1048576;
+function isGif(f) { return !!f && (f.type === "image/gif" || /\.gif$/i.test(f.name || "")); }
+function gifProblem(f) { return f.size > GIF_MAX ? "That GIF is " + fmtSize(f.size) + ". Please pick one under 8 MB." : ""; }
+
 function fmtSize(b) { return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB"; }
 function fmtTime(sec) { const m = Math.floor(sec / 60); const r = Math.round(sec % 60); return m + ":" + (r < 10 ? "0" : "") + r; }
 
@@ -450,6 +454,8 @@ function allPaths(p) { return postPaths(p).concat(p.video_path ? [p.video_path] 
 /* =====================  icons & small pieces  ===================== */
 const ICONS = {
   heart: '<path d="M12 20s-7-4.4-9-9c-1.2-3 .6-6.5 4-6.5 2 0 3.5 1 5 3 1.5-2 3-3 5-3 3.4 0 5.2 3.5 4 6.5-2 4.6-9 9-9 9z"/>',
+  smile: '<circle cx="12" cy="12" r="9"/><path d="M8 14c1 1.6 2.4 2.4 4 2.4s3-.8 4-2.4"/><path d="M9 9.5h.01M15 9.5h.01"/>',
+  gif: '<rect x="2.5" y="6" width="19" height="12" rx="3"/><path d="M9.5 10.5H7.8a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h1.7v-1.2H8.6M12 10.3v3.4M14.5 13.7v-3.4h2.2M14.5 12h1.6"/>',
   comment: '<path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.6-5.2A8.5 8.5 0 1 1 21 12z"/>',
   home: '<path d="M3 11l9-8 9 8v10h-6v-6H9v6H3z"/>',
   people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.6 0 4.5 1.7 4.5 4.5"/>',
@@ -516,6 +522,47 @@ function Sheet({ title, label, onClose, children }) {
       ${title && html`<h2 className="sheet-title">${title}</h2>`}
       ${children}
     </div></div>`;
+}
+
+
+/* =====================  emoji library  ===================== */
+const EMOJI = [
+  ["Smileys", "😀 😃 😄 😁 😆 😅 😂 🤣 🥲 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👻 💀 🤖 🎃 😺 😸 😹 😻 😼 😽"],
+  ["Love", "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 💌 😍 🥰 😘 💋 💍 💐 🌹 🌷 🌸 💒 👰 🤵 💏 💑 👨‍👩‍👧 👪 🫶 🥂 🍾"],
+  ["Hands", "👍 👎 👏 🙌 👐 🤲 🤝 🙏 ✌️ 🤞 🤟 🤘 👌 🤌 🤏 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤙 💪 🦾 ✍️ 🤳 💅 🫰 🫶 🫡 🙋 🙆 🙇 🤷 🤦 💁 🕺 💃 🚶 🏃"],
+  ["Party", "🎉 🎊 🎈 🎁 🎂 🍰 🧁 🎀 🪅 🥳 🎆 🎇 ✨ 🌟 ⭐ 💫 🔥 💯 🏆 🥇 🥈 🥉 🎖️ 🎵 🎶 🎤 🎧 🎸 🎹 🥁 🎷 🎺 🎻 🪩 💃 🕺 🍾 🥂 🍻 🍷 🍸 🍹 🎯 🎮 🎲 🎭 🎨 🎬 📸"],
+  ["Food", "🍕 🍔 🍟 🌭 🌮 🌯 🥪 🍗 🍖 🥩 🥓 🍳 🥞 🧇 🥐 🍞 🧀 🥗 🍝 🍜 🍲 🍣 🍤 🍙 🍚 🍛 🥟 🍦 🍧 🍨 🍩 🍪 🍫 🍬 🍭 🍮 🍯 🍎 🍏 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🌽 🥕 🥔 🍄 🥜 ☕ 🍵 🥤 🧃 🥛 🍺 🍷 🥃"],
+  ["Nature", "🌞 🌝 🌈 ☀️ ⛅ ☁️ 🌧️ ⛈️ ❄️ ☃️ ⛄ 🌊 💧 🔥 🌍 🌎 🌲 🌳 🌴 🌵 🌾 🌿 ☘️ 🍀 🍁 🍂 🍃 🌺 🌻 🌼 🌷 🌹 🥀 🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🦆 🦉 🦋 🐝 🐞 🐢 🐍 🐙 🐬 🐳 🦈 🐴 🦄 🐕 🐈 🦌"],
+  ["Travel", "🚗 🚙 🚌 🚓 🚑 🚒 🏎️ 🛻 🚚 🚜 🏍️ 🚲 ✈️ 🛫 🛬 🚀 🚁 🛶 ⛵ 🚤 🛳️ 🚂 🚆 🏠 🏡 🏖️ 🏝️ 🏕️ ⛺ 🏔️ ⛰️ 🗻 🗽 🏰 🎡 🎢 🎠 🌅 🌄 🌇 🌃 🌉 🗺️ 🧭 🧳 🌴 🛞 🏁"],
+  ["Sports", "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🎱 🏓 🏸 🥅 ⛳ 🏹 🎣 🥊 🥋 ⛷️ 🏂 🏄 🚣 🏊 🚴 🏋️ 🤸 🧘 🎿 🛷 🏆 🥇 🥁 〽️ 🐺"],
+  ["Symbols", "❤️ 💯 ✅ ☑️ ✔️ ❌ ❓ ❗ ‼️ ⭐ ✨ 💥 💢 💦 💨 💬 💭 🗯️ 💤 🔔 🔕 📣 🕊️ ☮️ ✝️ 🙏 ♾️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ ➕ ➖ ➡️ ⬅️ ⬆️ ⬇️ 🔝 🆕 🆒 🆗 🏳️‍🌈 🇺🇸 🏴"]
+].map(function (c) { return { name: c[0], list: Array.from(new Set(c[1].split(" ").filter(Boolean))) }; });
+
+function EmojiSheet({ onPick, onClose }) {
+  const [tab, setTab] = useState(0);
+  const recent = (function () { try { return JSON.parse(lsGet("ic-emoji-recent", "[]")) || []; } catch (e) { return []; } })();
+  const tabs = (recent.length ? [{ name: "Recent", list: recent }] : []).concat(EMOJI);
+  const cur = tabs[Math.min(tab, tabs.length - 1)];
+  function choose(em) {
+    try { lsSet("ic-emoji-recent", JSON.stringify([em].concat(recent.filter(function (x) { return x !== em; })).slice(0, 24))); } catch (e) {}
+    onPick(em);
+  }
+  return html`<${Sheet} title="Pick an emoji" onClose=${onClose}>
+    <div className="emtabs" role="tablist">${tabs.map(function (t, i) {
+      return html`<button key=${t.name} role="tab" aria-selected=${t === cur} className=${t === cur ? "on" : ""} onClick=${function () { setTab(i); }}>${t.name}</button>`;
+    })}</div>
+    <div className="emgrid">${cur.list.map(function (em) {
+      return html`<button key=${em} aria-label=${"Add " + em} onClick=${function () { choose(em); }}>${em}</button>`;
+    })}</div>
+    <button className="btn grey block" style=${{ marginTop: ".8rem" }} onClick=${onClose}>Done</button>
+  </${Sheet}>`;
+}
+/* A small smiley button. onPick(emoji) is called with each emoji chosen (the picker stays open so you can add several). */
+function EmojiBtn({ onPick, light }) {
+  const [open, setOpen] = useState(false);
+  return html`<button type="button" className=${"ibtn emojibtn" + (light ? " light" : "")} aria-label="Add an emoji" onClick=${function () { setOpen(true); }}>
+      <${Icon} n="smile" s=${24} sw=${1.8} /></button>
+    ${open && html`<${EmojiSheet} onPick=${onPick} onClose=${function () { setOpen(false); }} />`}`;
 }
 
 /* =====================  sign in / join (text-message code) / email fallback  ===================== */
@@ -1043,6 +1090,7 @@ function Comments({ postId }) {
   const [replyTo, setReplyTo] = useState(null);
   const [busy, setBusy] = useState(false);
   const input = useRef(null);
+  const gifIn = useRef(null);
   const kb = useKeyboardInset();
   const QUICK = ["❤️", "😍", "🙌", "😂", "👏", "🔥"];
 
@@ -1067,6 +1115,24 @@ function Comments({ postId }) {
     setBusy(false);
   }
   function send(e) { e.preventDefault(); sendBody(text.trim()); }
+  async function pickGif(e) {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!isGif(f)) { toast("Please choose a GIF."); return; }
+    if (f.size > 5 * 1048576) { toast("That GIF is " + fmtSize(f.size) + ". For comments please pick one under 5 MB."); return; }
+    setBusy(true);
+    const path = me.id + "/" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + ".gif";
+    try {
+      const up = await sb.storage.from("photos").upload(path, f, { contentType: "image/gif" });
+      if (up.error) throw up.error;
+      const r = await sb.from("comments").insert({ post_id: postId, author_id: me.id, body: text.trim(), gif_path: path, parent_id: replyTo ? replyTo.id : null });
+      if (r.error) { sb.storage.from("photos").remove([path]); throw r.error; }
+      setText(""); setReplyTo(null);
+    } catch (err) { toast((err && err.message) || "Could not send that GIF."); }
+    await load();
+    setBusy(false);
+  }
   async function toggleHeart(c) {
     const on = c.comment_hearts.some(function (h) { return h.user_id === me.id; });
     const r = on
@@ -1077,7 +1143,8 @@ function Comments({ postId }) {
   }
   async function remove(c) {
     if (!confirm("Delete this comment?")) return;
-    await sb.from("comments").delete().eq("id", c.id);
+    const del = await sb.from("comments").delete().eq("id", c.id);
+    if (!del.error && c.gif_path) sb.storage.from("photos").remove([c.gif_path]);
     load();
   }
   function startReply(c) {
@@ -1092,6 +1159,7 @@ function Comments({ postId }) {
   const thumbUrls = useUrls(post ? [post.image_path].filter(Boolean) : []);
   const thumb = post && post.image_path ? thumbUrls(post.image_path) : null;
   const all = list || [];
+  const gifUrls = useUrls(all.map(function (c) { return c.gif_path; }).filter(Boolean));
   const tops = all.filter(function (c) { return !c.parent_id; });
   const repliesOf = function (id) { return all.filter(function (c) { return c.parent_id === id; }); };
 
@@ -1101,7 +1169,8 @@ function Comments({ postId }) {
     return html`<div key=${c.id} className=${"cmt " + (reply ? "reply" : "")}>
       <${Avatar} id=${c.author_id} name=${authorOf(c.author_id)} size=${reply ? 28 : 36} />
       <div className="grow" style=${{ fontSize: ".9rem" }}>
-        <div style=${{ overflowWrap: "anywhere" }}><b style=${{ fontWeight: 600 }}>${authorOf(c.author_id)}</b> <${Linkify} text=${c.body} /></div>
+        <div style=${{ overflowWrap: "anywhere" }}><b style=${{ fontWeight: 600 }}>${authorOf(c.author_id)}</b> ${c.body ? html`<${Linkify} text=${c.body} />` : ""}</div>
+        ${c.gif_path && (gifUrls(c.gif_path) ? html`<img className="cgif" src=${gifUrls(c.gif_path)} alt="GIF" loading="lazy" />` : html`<div className="cgif ph"></div>`)}
         <div className="meta">${agoShort(c.created_at)}${n > 0 ? html`<b style=${{ marginLeft: ".8rem", fontWeight: 700 }}>${n === 1 ? "1 heart" : n + " hearts"}</b>` : ""}
           <button onClick=${function () { startReply(c); }}>Reply</button>
           ${(c.author_id === me.id || me.role === "admin") && html`<button onClick=${function () { remove(c); }}>Delete</button>`}
@@ -1139,6 +1208,9 @@ function Comments({ postId }) {
         ${!replyTo && tops.length > 0 && html`<div className="qr small">${QUICK.map(function (em) { return html`<button key=${em} aria-label=${"Send " + em} onClick=${function () { sendBody(em); }}>${em}</button>`; })}</div>`}
         <form className="cform" onSubmit=${send}>
           <${Avatar} id=${me.id} name=${me.display_name} size=${34} />
+          <${EmojiBtn} onPick=${function (em) { setText(function (t) { return (t + em).slice(0, 2000); }); if (input.current) input.current.focus(); }} />
+          <input ref=${gifIn} type="file" accept="image/gif" onChange=${pickGif} style=${{ display: "none" }} />
+          <button type="button" className="ibtn" aria-label="Add a GIF" disabled=${busy} onClick=${function () { gifIn.current.click(); }}><${Icon} n="gif" s=${26} sw=${1.8} /></button>
           <label className="sr" htmlFor="cm-in">Add a comment</label>
           <input id="cm-in" ref=${input} type="text" value=${text} maxLength="2000"
             placeholder=${replyTo ? "Write a reply..." : "Add a comment..."}
@@ -1166,6 +1238,7 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
   const [longAt, setLongAt] = useState(null);   // when the next long video is allowed (null = allowed now)
   const input = useRef(null);
   const vinput = useRef(null);
+  const ginput = useRef(null);
   useEffect(function () {
     const since = new Date(Date.now() - 86400000).toISOString();
     sb.from("posts").select("created_at").eq("author_id", me.id).gt("video_seconds", SHORT_VIDEO_S).gte("created_at", since).order("created_at", { ascending: false }).limit(1)
@@ -1196,8 +1269,10 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
   }
 
   function pick(e) {
-    const chosen = Array.from(e.target.files || []);
-    if (!chosen.length) return;
+    let chosen = Array.from(e.target.files || []);
+    const tooBig = chosen.filter(function (f) { return isGif(f) && gifProblem(f); });
+    if (tooBig.length) { toast(gifProblem(tooBig[0])); chosen = chosen.filter(function (f) { return tooBig.indexOf(f) < 0; }); }
+    if (!chosen.length) { e.target.value = ""; return; }
     if (video) setVideo(null);
     setFiles(function (cur) {
       const room = MAX_PHOTOS - cur.length;
@@ -1239,9 +1314,11 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
       }
       for (let k = 0; k < files.length; k++) {
         setBusy(files.length > 1 ? "Uploading " + (k + 1) + " of " + files.length + "..." : "Uploading...");
-        const blob = await shrink(files[k].file);
-        const path = me.id + "/" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + k) + ".jpg";
-        const up = await sb.storage.from("photos").upload(path, blob, { contentType: "image/jpeg" });
+        const gif = isGif(files[k].file);
+        if (gif && gifProblem(files[k].file)) throw new Error(gifProblem(files[k].file));
+        const blob = gif ? files[k].file : await shrink(files[k].file);
+        const path = me.id + "/" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + k) + (gif ? ".gif" : ".jpg");
+        const up = await sb.storage.from("photos").upload(path, blob, { contentType: gif ? "image/gif" : "image/jpeg" });
         if (up.error) throw up.error;
         uploaded.push(path);
       }
@@ -1269,9 +1346,11 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
       ${albumId && html`<div className="promptbar">Adding to the album: <b>${albumName}</b></div>`}
       <input ref=${input} type="file" accept="image/*" multiple onChange=${pick} style=${{ display: "none" }} />
       <input ref=${vinput} type="file" accept="video/*" onChange=${pickVideo} style=${{ display: "none" }} />
+      <input ref=${ginput} type="file" accept="image/gif" multiple onChange=${pick} style=${{ display: "none" }} />
       ${!files.length && !video && html`<div className="pick2">
         <button onClick=${function () { input.current.click(); }}><${Icon} n="camera" s=${30} sw=${1.6} /><b>Photos</b><span>Up to ${MAX_PHOTOS} in one post</span></button>
         <button onClick=${function () { vinput.current.click(); }}><${Icon} n="play" s=${30} sw=${1.6} /><b>Video</b><span>${longAt ? "Up to 30 seconds. Longer opens at " + longAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "30 seconds, or 3 minutes once a day"}</span></button>
+        <button onClick=${function () { ginput.current.click(); }}><${Icon} n="gif" s=${30} sw=${1.6} /><b>GIF</b><span>Animated, up to 8 MB</span></button>
       </div>`}
       <div className="row" style=${{ alignItems: "flex-start", padding: "1rem", borderBottom: "1px solid var(--soft)" }}>
         ${(files.length === 1 || video) && html`<button onClick=${function () { input.current.click(); }} aria-label=${files.length ? "Add more photos" : "Choose photos"}
@@ -1283,6 +1362,7 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
         <label className="sr" htmlFor="np-cap">Caption</label>
         <textarea id="np-cap" className="field" style=${{ border: 0, background: "#fff", height: "5.5rem" }} maxLength="3000"
           placeholder="Tell them what is happening, who is in it, how it felt..." value=${caption} onChange=${function (e) { setCaption(e.target.value); }}></textarea>
+        <div style=${{ display: "flex", justifyContent: "flex-end", marginTop: "-.3rem" }}><${EmojiBtn} onPick=${function (em) { setCaption(function (c) { return (c + em).slice(0, 3000); }); }} /></div>
       </div>
       ${files.length > 1 && html`<div className="collage">
         ${(showAll ? files : files.slice(0, 5)).map(function (f, k) {
@@ -1349,6 +1429,7 @@ function HelloSheet({ userId, onClose }) {
     <div className="row" style=${{ marginTop: ".6rem" }}>
       <label className="sr" htmlFor="hello-note">Write your own</label>
       <input id="hello-note" className="field" placeholder="Or write your own..." maxLength="140" value=${note} onChange=${function (e) { setNote(e.target.value); }} />
+      <${EmojiBtn} onPick=${function (em) { setNote(function (t) { return (t + em).slice(0, 140); }); }} />
       <button className="btn" disabled=${busy || !note.trim()} onClick=${function () { send(note.trim()); }}>Send</button>
     </div>
   </${Sheet}>`;
@@ -1904,7 +1985,7 @@ function WishSheet({ c, onClose, onEdit }) {
       <div className="qr small" style=${{ padding: ".2rem 0 .5rem", justifyContent: "flex-start" }}>${quick.map(function (q) { return html`<button key=${q} className="chip" onClick=${function () { setText(q); }}>${q}</button>`; })}</div>
       <label className="sr" htmlFor="wish-in">Your wish</label>
       <textarea id="wish-in" className="field" rows="3" maxLength="300" placeholder="Write a few kind words..." value=${text} onChange=${function (e) { setText(e.target.value); }}></textarea>
-      <div className="row" style=${{ marginTop: ".6rem" }}>
+      <div className="row" style=${{ marginTop: ".6rem" }}><${EmojiBtn} onPick=${function (em) { setText(function (t) { return (t + em).slice(0, 300); }); }} />
         ${mine && html`<button className="btn grey" onClick=${removeMine}>Remove</button>`}
         <button className="btn grow" disabled=${busy || !text.trim()} onClick=${send}>${busy ? "Sending..." : mine ? "Update my wish" : "Send wish"}</button>
       </div></div>`}
@@ -2503,6 +2584,7 @@ function EventMessages({ ev }) {
     <div className="evh"><h3>Messages and well wishes</h3>${canManage && rows && rows.length > 0 && html`<button className="linkbtn" onClick=${keepsake}>Save as a file</button>`}</div>
     <label className="sr" htmlFor="emsg-in">Write a message</label>
     <textarea id="emsg-in" className="field" rows="3" maxLength="600" placeholder="Write a few kind words..." value=${text} onChange=${function (e) { setText(e.target.value); }} style=${{ marginTop: ".5rem" }}></textarea>
+    <div style=${{ display: "flex", justifyContent: "flex-end" }}><${EmojiBtn} onPick=${function (em) { setText(function (t) { return (t + em).slice(0, 600); }); }} /></div>
     <div style=${{ margin: ".5rem 0" }}><${VoiceRecorder} value=${voice} onChange=${setVoice} /></div>
     <button className="btn block" disabled=${busy || (!text.trim() && !voice)} onClick=${send}>${busy ? "Saving..." : "Add my message"}</button>
     ${rows && rows.length === 0 && html`<div className="muted" style=${{ fontSize: ".9rem", paddingTop: ".6rem" }}>No messages yet. Yours can be the first.</div>`}
@@ -2846,7 +2928,7 @@ async function fetchActivity(me) {
   ]);
   if (res[0].error && res[1].error && res[2].error) throw new Error("activity");
   const items = [];
-  (res[0].data || []).forEach(function (c) { items.push({ k: "c" + c.id, kind: "comment", who: c.author_id, post: c.post_id, img: c.posts && c.posts.image_path, text: c.body, at: c.created_at }); });
+  (res[0].data || []).forEach(function (c) { items.push({ k: "c" + c.id, kind: "comment", who: c.author_id, post: c.post_id, img: c.posts && c.posts.image_path, text: c.body || "Sent a GIF", at: c.created_at }); });
   (res[1].data || []).forEach(function (h) { items.push({ k: "h" + h.post_id + h.user_id, kind: "heart", who: h.user_id, post: h.post_id, img: h.posts && h.posts.image_path, at: h.created_at }); });
   (res[2].data || []).forEach(function (h) { items.push({ k: "x" + h.id, kind: "hello", who: h.from_id, text: h.message, at: h.created_at }); });
   items.sort(function (a, b) { return new Date(b.at) - new Date(a.at); });

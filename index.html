@@ -270,6 +270,15 @@
   .newscard .clamp { -webkit-line-clamp: 2; display: -webkit-box; margin-top: .2rem; font-size: .92rem; }
   .pick2 { display: flex; gap: .7rem; padding: 1rem 1rem 0; }
   .pick2 button { flex: 1; min-height: 7rem; border: 1.5px dashed #b9b9b9; border-radius: 1rem; background: #fafafa; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; padding: .6rem; cursor: pointer; color: var(--green); text-align: center; }
+  .emtabs { display: flex; gap: .4rem; overflow-x: auto; padding: 0 0 .6rem; }
+  .emtabs button { flex: none; min-height: 2.75rem; padding: 0 .9rem; border-radius: 2rem; border: 1px solid var(--line); background: #fff; font-weight: 600; cursor: pointer; }
+  .emtabs button.on { background: var(--grad); color: #fff; border-color: transparent; }
+  .emgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: .15rem; max-height: 40dvh; overflow-y: auto; }
+  .emgrid button { background: none; border: 0; font-size: 1.7rem; min-height: 2.9rem; border-radius: .6rem; cursor: pointer; }
+  .emgrid button:active { background: var(--tint); }
+  .emojibtn { color: var(--green); }
+  .cgif { display: block; max-width: min(15rem, 100%); max-height: 15rem; border-radius: .8rem; margin-top: .3rem; background: var(--tint); }
+  .cgif.ph { width: 10rem; height: 7rem; }
   .pick2 b { color: var(--ink); font-size: 1rem; }
   .pick2 span { color: var(--muted); font-size: .72rem; line-height: 1.2; }
 .collage { display: grid; grid-template-columns: repeat(6, 1fr); gap: .3rem; padding: .8rem 1rem 0; }

@@ -1,6 +1,6 @@
 // Tiny service worker: lets Inner Circle open instantly and keeps the app shell available offline.
 // Photos and family data are never cached here; they always come fresh from your private database.
-const CACHE = "inner-circle-v29";
+const CACHE = "inner-circle-v30";
 const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.json", "icon.svg",
   "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
