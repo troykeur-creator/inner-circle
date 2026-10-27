@@ -27,6 +27,33 @@ function colorFor(key) {
   return PALETTE[h % PALETTE.length];
 }
 function initial(name) { return (name || "?").trim().charAt(0).toUpperCase(); }
+
+/* Turn web addresses in text into tappable links (only http and https; opens in a new tab, no tracking) */
+function Linkify({ text }) {
+  const t = String(text == null ? "" : text);
+  const re = /(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+)/gi;
+  const out = [];
+  let last = 0, m, k = 0;
+  while ((m = re.exec(t))) {
+    let raw = m[0];
+    let tail = "";
+    const mt = raw.match(/[.,!?;:)\]'"]+$/);
+    if (mt) { tail = mt[0]; raw = raw.slice(0, raw.length - tail.length); }
+    if (m.index > last) out.push(t.slice(last, m.index));
+    let href = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
+    let ok = false;
+    try { const u = new URL(href); ok = (u.protocol === "https:" || u.protocol === "http:") && u.hostname.indexOf(".") > 0; if (ok) href = u.href; } catch (e) { ok = false; }
+    if (ok) {
+      const shown = raw.replace(/^https?:\/\/(www\.)?/i, "");
+      out.push(html`<a key=${"l" + (k++)} className="lnk" href=${href} target="_blank" rel="noopener noreferrer nofollow" onClick=${function (e) { e.stopPropagation(); }}>${shown.length > 45 ? shown.slice(0, 44) + "..." : shown}</a>`);
+    } else out.push(raw);
+    if (tail) out.push(tail);
+    last = m.index + m[0].length;
+  }
+  if (last < t.length) out.push(t.slice(last));
+  return out;
+}
+
 function nm(p) { return (p && p.display_name) || "Someone"; }
 
 function agoLong(d) {
@@ -718,7 +745,7 @@ function PostCard({ post, onChange, albumId }) {
           ${burst && html`<div className="pop"><${Icon} n="heart" s=${90} fill="#fff" color="#fff" sw=${1} /></div>`}
         </div>
         <div className="dots" aria-hidden="true">${paths.map(function (p, k) { return html`<i key=${p} className=${k === idx ? "on" : ""}></i>`; })}</div>`}
-      ${paths.length === 0 && !vp && post.caption && html`<div className="textpost" onClick=${photoTap}>${post.caption}</div>`}
+      ${paths.length === 0 && !vp && post.caption && html`<div className="textpost" onClick=${photoTap}><${Linkify} text=${post.caption} /></div>`}
       <div className="acts">
         <button className=${"act" + (hearted ? " on" : "")} aria-label=${hearted ? "Remove your heart" : "Send a heart"} onClick=${function () { setHeart(!hearted); }}>
           <${Icon} n="heart" s=${26} fill=${hearted ? "#d1352b" : "none"} color=${hearted ? "#d1352b" : "currentColor"} />${names.length > 0 && html`<b>${names.length}</b>`}
@@ -728,7 +755,7 @@ function PostCard({ post, onChange, albumId }) {
         </button>
       </div>
       ${names.length > 0 && html`<div className="likes">${lovedBy(names)}</div>`}
-      ${(paths.length > 0 || vp) && post.caption && html`<div className=${"cap" + (capOpen ? "" : " clamp")}><b style=${{ fontWeight: 600 }}>${authorName}</b> ${post.caption}</div>
+      ${(paths.length > 0 || vp) && post.caption && html`<div className=${"cap" + (capOpen ? "" : " clamp")}><b style=${{ fontWeight: 600 }}>${authorName}</b> <${Linkify} text=${post.caption} /></div>
         ${!capOpen && post.caption.length > 110 && html`<button className="morebtn" onClick=${function () { setCapOpen(true); }}>more</button>`}`}
       ${nComments > 0 && html`<button className="linkish" onClick=${function () { push({ name: "comments", postId: post.id }); }}>${nComments === 1 ? "View 1 comment" : "View all " + nComments + " comments"}</button>`}
       <button className="addc" aria-label="Add a comment" onClick=${function () { push({ name: "comments", postId: post.id }); }}>
@@ -1051,7 +1078,7 @@ function Comments({ postId }) {
     return html`<div key=${c.id} className=${"cmt " + (reply ? "reply" : "")}>
       <${Avatar} id=${c.author_id} name=${authorOf(c.author_id)} size=${reply ? 28 : 36} />
       <div className="grow" style=${{ fontSize: ".9rem" }}>
-        <div style=${{ overflowWrap: "anywhere" }}><b style=${{ fontWeight: 600 }}>${authorOf(c.author_id)}</b> ${c.body}</div>
+        <div style=${{ overflowWrap: "anywhere" }}><b style=${{ fontWeight: 600 }}>${authorOf(c.author_id)}</b> <${Linkify} text=${c.body} /></div>
         <div className="meta">${agoShort(c.created_at)}${n > 0 ? html`<b style=${{ marginLeft: ".8rem", fontWeight: 700 }}>${n === 1 ? "1 heart" : n + " hearts"}</b>` : ""}
           <button onClick=${function () { startReply(c); }}>Reply</button>
           ${(c.author_id === me.id || me.role === "admin") && html`<button onClick=${function () { remove(c); }}>Delete</button>`}
@@ -1653,7 +1680,7 @@ function Profile({ userId, root }) {
       <div style=${{ padding: "0 1.1rem .8rem", fontSize: ".9rem" }}>
         <div style=${{ fontWeight: 600 }}>${nm(p)}</div>
         ${p.relation && html`<div className="muted">${p.relation}</div>`}
-        ${p.bio ? html`<div style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>${p.bio}</div>` : mine ? html`<div className="muted">Add a few words about yourself in Edit profile.</div>` : null}
+        ${p.bio ? html`<div style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><${Linkify} text=${p.bio} /></div>` : mine ? html`<div className="muted">Add a few words about yourself in Edit profile.</div>` : null}
       </div>
       <div className="row" style=${{ padding: "0 1.1rem 1rem" }}>
         ${mine
@@ -1848,7 +1875,7 @@ function WishSheet({ c, onClose, onEdit }) {
     ${wishes === null ? html`<div className="muted center" style=${{ padding: "1rem" }}>Loading...</div>`
       : wishes.length === 0 ? html`<div className="muted" style=${{ padding: ".2rem 0 .8rem" }}>${isMe ? "Wishes from your family will show up here." : "No wishes yet. Be the first."}</div>`
       : html`<div className="wishes">${wishes.map(function (w) {
-          return html`<div className="wish" key=${w.id}><${Avatar} id=${w.author_id} name=${nm(profiles[w.author_id])} size=${32} /><div><b style=${{ fontWeight: 600 }}>${nm(profiles[w.author_id])}</b><div style=${{ overflowWrap: "anywhere" }}>${w.body}</div></div></div>`;
+          return html`<div className="wish" key=${w.id}><${Avatar} id=${w.author_id} name=${nm(profiles[w.author_id])} size=${32} /><div><b style=${{ fontWeight: 600 }}>${nm(profiles[w.author_id])}</b><div style=${{ overflowWrap: "anywhere" }}><${Linkify} text=${w.body} /></div></div></div>`;
         })}</div>`}
     ${!isMe && html`<div>
       <div className="qr small" style=${{ padding: ".2rem 0 .5rem", justifyContent: "flex-start" }}>${quick.map(function (q) { return html`<button key=${q} className="chip" onClick=${function () { setText(q); }}>${q}</button>`; })}</div>
@@ -2229,7 +2256,7 @@ function EventScreen({ id }) {
       <div className="evline"><b>${fmtEvDate(ev.starts_at)}</b><span>${fmtEvTime(ev.starts_at)}${ev.ends_at ? " to " + fmtEvTime(ev.ends_at) : ""}</span></div>
       ${(ev.place || ev.address) && html`<div className="evline"><b>${ev.place || ev.address}</b>${ev.place && ev.address && html`<span>${ev.address}</span>`}
         <a className="linkbtn" href=${"https://www.google.com/maps/search/?api=1&query=" + mapQ} target="_blank" rel="noopener noreferrer">Open in maps</a></div>`}
-      ${ev.details && html`<p style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: ".6rem 0 0" }}>${ev.details}</p>`}
+      ${ev.details && html`<p style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: ".6rem 0 0" }}><${Linkify} text=${ev.details} /></p>`}
       ${!st.past && html`<button className="linkbtn" style=${{ marginTop: ".4rem" }} onClick=${function () { addToCalendar(ev, toast); }}>Add to my calendar</button>`}
     </div>
     ${!st.past && html`<div className="evsec">
@@ -2907,7 +2934,7 @@ function PromptCard({ prompt, answers }) {
   const done = answers.some(function (a) { return a.author_id === me.id; });
   return html`<div className="pcard slim">
     <div className="grow"><div className="pk">Add yours${answers.length > 0 ? " · " + answers.length + (answers.length === 1 ? " answer" : " answers") : ""}</div>
-      <div className="pt">${prompt.body}</div></div>
+      <div className="pt"><${Linkify} text=${prompt.body} /></div></div>
     ${done ? html`<button className="btn sm grey" onClick=${function () { push({ name: "prompt", id: prompt.id }); }}>See ${answers.length}</button>`
       : html`<button className="btn sm" onClick=${function () { push({ name: "new", promptId: prompt.id, promptText: prompt.body }); }}>Add yours</button>`}
   </div>`;
@@ -3010,7 +3037,7 @@ function NewsItem({ item, onDeleted }) {
     <div className="row" style=${{ marginBottom: ".4rem" }}><${Avatar} id=${item.author_id} name=${a.display_name} size=${36} />
       <div className="grow"><b style=${{ fontWeight: 600 }}>${nm(a)}</b><div className="muted" style=${{ fontSize: ".75rem" }}>${agoLong(item.created_at)}</div></div>
       ${me.role === "admin" && html`<button className="linkbtn" style=${{ color: "var(--red)", fontWeight: 500 }} onClick=${del}>Delete</button>`}</div>
-    ${item.body && html`<div style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>${item.body}</div>`}
+    ${item.body && html`<div style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><${Linkify} text=${item.body} /></div>`}
     ${item.audio_path && html`<div style=${{ marginTop: ".5rem" }}>${urls(item.audio_path) ? html`<audio controls preload="none" src=${urls(item.audio_path)} style=${{ width: "100%" }} aria-label=${"Voice memo from " + nm(a)}></audio>` : html`<div className="muted" style=${{ fontSize: ".85rem" }}>Loading voice memo...</div>`}
       <div className="muted" style=${{ fontSize: ".75rem" }}>Voice memo, ${fmtTime(item.audio_seconds || 0)}</div></div>`}
   </div>`;
