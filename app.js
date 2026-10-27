@@ -95,6 +95,7 @@ async function pushEnable() {
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC) });
   await pushSave(sub);
   lsSet("ic-push", "1");
+  window.dispatchEvent(new Event("ic-push-changed"));
   return "granted";
 }
 async function pushDisable() {
@@ -109,6 +110,17 @@ async function pushDisable() {
 async function pushIsOn() {
   if (!pushCanWork() || Notification.permission !== "granted") return false;
   try { const reg = await navigator.serviceWorker.ready; return !!(await reg.pushManager.getSubscription()) && lsGet("ic-push", "") === "1"; } catch (e) { return false; }
+}
+
+async function signOutClean() {   /* stop this phone buzzing for the account being left, then sign out */
+  try {
+    if (pushCanWork() && Notification.permission === "granted") {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await sb.rpc("drop_push_sub", { p_endpoint: sub.endpoint });
+    }
+  } catch (e) {}
+  sb.auth.signOut();
 }
 
 let deferredInstall = null;
@@ -162,7 +174,8 @@ function inviteFromUrl() {
 async function sendInviteText(code, fromName, days) {
   const link = inviteLink(code);
   const text = (fromName ? fromName + " invited you to" : "You are invited to") +
-    " Inner Circle, a private space for family and close friends. Tap the link to join (your invite code is filled in for you). It works once and expires in " + (days || 7) + " days. If it asks, the code is " + code + ".";
+    " Inner Circle, a private space for family and close friends. Tap the link to join (your invite code is filled in for you). It works once and expires in " + (days || 7) + " days. If it asks, the code is " + code + "." +
+    " After you join, put it on your home screen. iPhone: open the link in Safari, tap the Share button, then Add to Home Screen. Android: tap Install when it asks.";
   if (navigator.share) {
     try { await navigator.share({ title: "Join Inner Circle", text: text, url: link }); return "shared"; }
     catch (e) { if (e && e.name === "AbortError") return "cancelled"; }
@@ -405,6 +418,7 @@ const ICONS = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   more: '<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   grid: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 10.5h16M4 15.5h16M9.5 4v16M14.5 4v16"/>',
@@ -448,7 +462,7 @@ function Failed({ what, onRetry }) {
     <p className="muted" style=${{ marginTop: 0 }}>${"We could not load " + (what || "this") + ". Check your connection and try again."}</p>
     <button className="btn" onClick=${onRetry}>Try again</button></div>`;
 }
-function Sheet({ title, onClose, children }) {
+function Sheet({ title, label, onClose, children }) {
   const box = useRef(null);
   useEffect(function () { if (box.current) box.current.focus(); }, []);
   useEffect(function () {
@@ -457,7 +471,7 @@ function Sheet({ title, onClose, children }) {
     return function () { window.removeEventListener("keydown", k); };
   }, []);
   return html`<div className="scrim" onClick=${onClose}>
-    <div className="sheet" ref=${box} tabIndex="-1" role="dialog" aria-modal="true" aria-label=${title || "Menu"} onClick=${function (e) { e.stopPropagation(); }}>
+    <div className="sheet" ref=${box} tabIndex="-1" role="dialog" aria-modal="true" aria-label=${title || label || "Menu"} onClick=${function (e) { e.stopPropagation(); }}>
       <div className="grab"></div>
       ${title && html`<h2 className="sheet-title">${title}</h2>`}
       ${children}
@@ -593,7 +607,7 @@ function Waiting({ me, reloadMe }) {
       <h1 className="serif" style=${{ color: "#2f5d50", margin: ".6rem 0" }}>${removed ? "Access ended" : "Almost in" + (me.display_name ? ", " + me.display_name : "")}</h1>
       <p className="muted">${removed ? "The family organizer has ended your access to Inner Circle." : "The family organizer has been asked to welcome you. This screen updates when they do, or tap the button to check."}</p>
       ${!removed && html`<div><button className="btn" onClick=${reloadMe}>Check again</button></div>`}
-      <button className="linkbtn" onClick=${function () { sb.auth.signOut(); }}>Sign out</button>
+      <button className="linkbtn" onClick=${signOutClean}>Sign out</button>
     </div>`;
 }
 
@@ -606,6 +620,7 @@ function PostCard({ post, onChange, albumId }) {
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.caption || "");
+  const [capOpen, setCapOpen] = useState(false);
   const [grid, setGrid] = useState(true);
   const [start, setStart] = useState(0);
   const startRef = useRef(null);
@@ -705,16 +720,20 @@ function PostCard({ post, onChange, albumId }) {
         <div className="dots" aria-hidden="true">${paths.map(function (p, k) { return html`<i key=${p} className=${k === idx ? "on" : ""}></i>`; })}</div>`}
       ${paths.length === 0 && !vp && post.caption && html`<div className="textpost" onClick=${photoTap}>${post.caption}</div>`}
       <div className="acts">
-        <button className="ibtn" aria-label=${hearted ? "Remove your heart" : "Send a heart"} onClick=${function () { setHeart(!hearted); }}>
-          <${Icon} n="heart" s=${28} fill=${hearted ? "#d1352b" : "none"} color=${hearted ? "#d1352b" : "currentColor"} />
+        <button className=${"act" + (hearted ? " on" : "")} aria-label=${hearted ? "Remove your heart" : "Send a heart"} onClick=${function () { setHeart(!hearted); }}>
+          <${Icon} n="heart" s=${26} fill=${hearted ? "#d1352b" : "none"} color=${hearted ? "#d1352b" : "currentColor"} />${names.length > 0 && html`<b>${names.length}</b>`}
         </button>
-        <button className="ibtn" aria-label="Comments" onClick=${function () { push({ name: "comments", postId: post.id }); }}>
-          <${Icon} n="comment" s=${26} />
+        <button className="act" aria-label="Comments" onClick=${function () { push({ name: "comments", postId: post.id }); }}>
+          <${Icon} n="comment" s=${25} />${nComments > 0 && html`<b>${nComments}</b>`}
         </button>
       </div>
       ${names.length > 0 && html`<div className="likes">${lovedBy(names)}</div>`}
-      ${(paths.length > 0 || vp) && post.caption && html`<div className="cap"><b style=${{ fontWeight: 600 }}>${authorName}</b> ${post.caption}</div>`}
-      <button className="linkish" onClick=${function () { push({ name: "comments", postId: post.id }); }}>${nComments === 0 ? "Add a comment" : nComments === 1 ? "View 1 comment" : "View all " + nComments + " comments"}</button>
+      ${(paths.length > 0 || vp) && post.caption && html`<div className=${"cap" + (capOpen ? "" : " clamp")}><b style=${{ fontWeight: 600 }}>${authorName}</b> ${post.caption}</div>
+        ${!capOpen && post.caption.length > 110 && html`<button className="morebtn" onClick=${function () { setCapOpen(true); }}>more</button>`}`}
+      ${nComments > 0 && html`<button className="linkish" onClick=${function () { push({ name: "comments", postId: post.id }); }}>${nComments === 1 ? "View 1 comment" : "View all " + nComments + " comments"}</button>`}
+      <button className="addc" aria-label="Add a comment" onClick=${function () { push({ name: "comments", postId: post.id }); }}>
+        <${Avatar} id=${me.id} name=${me.display_name} size=${28} /><span>Add a comment...</span>
+      </button>
       <div className="time">${agoLong(post.created_at)}${post.edited_at ? " · edited" : ""}</div>
       ${post.audience_group && html`<div className="aud"><${Icon} n="lock" s=${13} sw=${2} /> ${(groupNames && groupNames[post.audience_group]) || "A private group"} only</div>`}
       ${post.author_id === me.id && (post.hidden_from || []).length > 0 && html`<div className="aud"><${Icon} n="lock" s=${13} sw=${2} /> Hidden from ${post.hidden_from.length} ${post.hidden_from.length === 1 ? "person" : "people"}</div>`}
@@ -763,6 +782,11 @@ function PushAsk() {
   });
   const [busy, setBusy] = useState(false);
   const { toast } = useApp();
+  useEffect(function () {
+    const h = function () { if (Notification.permission !== "default") setShow(false); };
+    window.addEventListener("ic-push-changed", h);
+    return function () { window.removeEventListener("ic-push-changed", h); };
+  }, []);
   if (!show) return null;
   async function turnOn() {
     setBusy(true);
@@ -869,6 +893,7 @@ function Home() {
       ${prompt && daysSince(prompt.created_at) < 14 && html`<${PromptCard} prompt=${prompt} answers=${answers} />`}
       ${noteSheet && html`<${NoteSheet} target=${noteSheet} onClose=${function () { setNoteSheet(null); }} onDone=${load} />`}
       <${PushAsk} />
+      <${HomeCelebrate} />
       ${me.role === "admin" && memberCount <= 1 && posts && html`<${GettingStarted} hasPosts=${posts.length > 0} />`}
       ${posts.length === 0 && !(me.role === "admin" && memberCount <= 1) && html`
         <div className="center" style=${{ padding: "3rem 1.5rem" }}>
@@ -969,6 +994,7 @@ function Comments({ postId }) {
   const [busy, setBusy] = useState(false);
   const input = useRef(null);
   const kb = useKeyboardInset();
+  const QUICK = ["❤️", "😍", "🙌", "😂", "👏", "🔥"];
 
   const load = useCallback(async function () {
     const res = await Promise.all([
@@ -982,16 +1008,15 @@ function Comments({ postId }) {
   }, [postId]);
   useEffect(function () { load(); }, [load]);
 
-  async function send(e) {
-    e.preventDefault();
-    const body = text.trim();
-    if (!body) return;
+  async function sendBody(body) {
+    if (!body || busy) return;
     setBusy(true);
     const r = await sb.from("comments").insert({ post_id: postId, author_id: me.id, body: body, parent_id: replyTo ? replyTo.id : null });
     if (r.error) toast(r.error.message); else { setText(""); setReplyTo(null); }
     await load();
     setBusy(false);
   }
+  function send(e) { e.preventDefault(); sendBody(text.trim()); }
   async function toggleHeart(c) {
     const on = c.comment_hearts.some(function (h) { return h.user_id === me.id; });
     const r = on
@@ -1014,6 +1039,8 @@ function Comments({ postId }) {
   }
 
   const authorOf = function (id) { return nm(profiles[id]); };
+  const thumbUrls = useUrls(post ? [post.image_path].filter(Boolean) : []);
+  const thumb = post && post.image_path ? thumbUrls(post.image_path) : null;
   const all = list || [];
   const tops = all.filter(function (c) { return !c.parent_id; });
   const repliesOf = function (id) { return all.filter(function (c) { return c.parent_id === id; }); };
@@ -1040,30 +1067,40 @@ function Comments({ postId }) {
     <div>
       <${TopBar} title="Comments" back=${back} />
       ${err && !list && html`<${Failed} what="the comments" onRetry=${load} />`}
-      ${post && html`<div className="cmt" style=${{ borderBottom: "1px solid var(--soft)", paddingBottom: ".9rem" }}>
-        <${Avatar} id=${post.author_id} name=${authorOf(post.author_id)} size=${36} />
-        <div className="grow" style=${{ fontSize: ".9rem" }}>
-          <div style=${{ overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}><b style=${{ fontWeight: 600 }}>${authorOf(post.author_id)}</b> ${post.caption || "Shared a photo"}</div>
-          <div className="meta">${agoShort(post.created_at)}</div>
+      ${post && html`<div className="cmthead">
+        ${thumb ? html`<img src=${thumb} alt="" />` : html`<${Avatar} id=${post.author_id} name=${authorOf(post.author_id)} size=${44} />`}
+        <div className="grow" style=${{ minWidth: 0 }}>
+          <div style=${{ fontWeight: 600 }}>${authorOf(post.author_id)}</div>
+          <div className="clamp2">${post.caption || (thumb ? "Shared a photo" : "")}</div>
+          <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".1rem" }}>${agoShort(post.created_at)}</div>
         </div></div>`}
-      ${list && tops.length === 0 && html`<div className="center muted" style=${{ padding: "2rem 1rem" }}>No comments yet. Say something kind.</div>`}
+      ${list && tops.length === 0 && html`<div className="cmtempty">
+        <div className="bub"><${Icon} n="comment" s=${30} sw=${1.6} color="#2f5d50" /></div>
+        <div className="serif" style=${{ fontSize: "1.25rem", color: "#2f5d50" }}>Start the conversation</div>
+        <div className="muted" style=${{ margin: ".2rem 0 .9rem" }}>Tap a quick reaction or write a few kind words.</div>
+        <div className="qr">${QUICK.map(function (em) { return html`<button key=${em} aria-label=${"Send " + em} onClick=${function () { sendBody(em); }}>${em}</button>`; })}</div>
+      </div>`}
       ${tops.map(function (c) {
         return html`<div key=${c.id}>${row(c, false)}${repliesOf(c.id).map(function (r) { return row(r, true); })}</div>`;
       })}
-      <div style=${{ height: "6rem" }}></div>
-      <form className="composer" onSubmit=${send} style=${{ bottom: kb + "px", paddingBottom: kb > 0 ? ".6rem" : "calc(env(safe-area-inset-bottom, 0px) + .6rem)" }}>
-        <${Avatar} id=${me.id} name=${me.display_name} size=${36} />
-        <label className="sr" htmlFor="cm-in">Add a comment</label>
-        <input id="cm-in" ref=${input} type="text" value=${text} maxLength="2000"
-          placeholder=${replyTo ? "Write a reply..." : "Add a comment..."}
-          onChange=${function (e) { setText(e.target.value); }} />
-        <button className="tbtn" disabled=${busy || !text.trim()}>Post</button>
-      </form>
+      <div style=${{ height: "9rem" }}></div>
+      <div className="composer2" style=${{ bottom: kb + "px", paddingBottom: kb > 0 ? ".5rem" : "calc(env(safe-area-inset-bottom, 0px) + .5rem)" }}>
+        ${replyTo && html`<div className="replybar">Replying to <b>${authorOf(replyTo.author_id)}</b><button onClick=${function () { setReplyTo(null); setText(""); }} aria-label="Cancel reply">Cancel</button></div>`}
+        ${!replyTo && tops.length > 0 && html`<div className="qr small">${QUICK.map(function (em) { return html`<button key=${em} aria-label=${"Send " + em} onClick=${function () { sendBody(em); }}>${em}</button>`; })}</div>`}
+        <form className="cform" onSubmit=${send}>
+          <${Avatar} id=${me.id} name=${me.display_name} size=${34} />
+          <label className="sr" htmlFor="cm-in">Add a comment</label>
+          <input id="cm-in" ref=${input} type="text" value=${text} maxLength="2000"
+            placeholder=${replyTo ? "Write a reply..." : "Add a comment..."}
+            onChange=${function (e) { setText(e.target.value); }} />
+          <button className="sendbtn" aria-label="Post" disabled=${busy || !text.trim()}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+        </form>
+      </div>
     </div>`;
 }
 
 /* =====================  new post (one or many photos)  ===================== */
-function NewPost({ day, promptId, promptText }) {
+function NewPost({ day, promptId, promptText, albumId, albumName }) {
   const { me, toast, back, bump, offerNudge } = useApp();
   const [aud, setAud] = useState({ mode: "all", groupId: null, groupName: "", except: [] });
   const [audOpen, setAudOpen] = useState(false);
@@ -1075,6 +1112,7 @@ function NewPost({ day, promptId, promptText }) {
   const [alsoDay, setAlsoDay] = useState(!!day);
   const [busy, setBusy] = useState("");
   const [video, setVideo] = useState(null);
+  const postId = useRef((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null).current || undefined;
   const [longAt, setLongAt] = useState(null);   // when the next long video is allowed (null = allowed now)
   const input = useRef(null);
   const vinput = useRef(null);
@@ -1140,8 +1178,9 @@ function NewPost({ day, promptId, promptText }) {
         const u2 = await sb.storage.from("photos").upload(ppath, res.poster, { contentType: "image/jpeg" });
         if (u2.error) throw u2.error;
         uploaded.push(ppath);
-        const rv = await sb.from("posts").insert(Object.assign({ author_id: me.id, caption: caption.trim(), image_path: ppath, video_path: vpath, video_seconds: Math.round(res.seconds), extra_paths: [], place: place.trim(), also_day: alsoDay }, meta));
+        const rv = await sb.from("posts").insert(Object.assign({ id: postId, author_id: me.id, caption: caption.trim(), image_path: ppath, video_path: vpath, video_seconds: Math.round(res.seconds), extra_paths: [], place: place.trim(), also_day: alsoDay }, meta));
         if (rv.error) throw rv.error;
+        if (albumId) await sb.from("album_posts").insert({ album_id: albumId, post_id: postId, added_by: me.id });
         toast("Shared with your Inner Circle");
         back();
         bump();
@@ -1157,10 +1196,11 @@ function NewPost({ day, promptId, promptText }) {
         uploaded.push(path);
       }
       const r = await sb.from("posts").insert(Object.assign({
-        author_id: me.id, caption: caption.trim(), image_path: uploaded[0] || null, extra_paths: uploaded.slice(1),
+        id: postId, author_id: me.id, caption: caption.trim(), image_path: uploaded[0] || null, extra_paths: uploaded.slice(1),
         place: place.trim(), also_day: alsoDay
       }, meta));
       if (r.error) throw r.error;
+      if (albumId) await sb.from("album_posts").insert({ album_id: albumId, post_id: postId, added_by: me.id });
       toast("Shared with your Inner Circle");
       back();
       bump();
@@ -1176,6 +1216,7 @@ function NewPost({ day, promptId, promptText }) {
     <div>
       <${TopBar} title="New post" back=${back} right=${html`<button className="tbtn" onClick=${submit} disabled=${!!busy}>${busy ? "..." : "Share"}</button>`} />
       ${promptId && html`<div className="promptbar"><b>Add yours:</b> ${promptText}</div>`}
+      ${albumId && html`<div className="promptbar">Adding to the album: <b>${albumName}</b></div>`}
       <input ref=${input} type="file" accept="image/*" multiple onChange=${pick} style=${{ display: "none" }} />
       <input ref=${vinput} type="file" accept="video/*" onChange=${pickVideo} style=${{ display: "none" }} />
       ${!files.length && !video && html`<div className="pick2">
@@ -1311,13 +1352,46 @@ function NudgeSheet({ onClose }) {
   </${Sheet}>`;
 }
 
+const ShareGlyph = html`<svg className="gl" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>`;
+const AddGlyph = html`<svg className="gl" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg>`;
+function inAppBrowser() { return /FBAN|FBAV|Instagram|Line\/|MicroMessenger|Snapchat|Twitter|GSA\//i.test(navigator.userAgent || ""); }
+function InstallSteps({ installable }) {
+  const { toast } = useApp();
+  async function copyLink() {
+    const u = location.origin + location.pathname;
+    try { await navigator.clipboard.writeText(u); toast("Link copied. Paste it into Safari."); } catch (e) { toast(u); }
+  }
+  if (installable) return html`<div><button className="btn" style=${{ marginTop: ".5rem" }} onClick=${runInstall}>Install app</button></div>`;
+  if (isIOS()) return html`<div>
+    ${inAppBrowser() && html`<div className="warnbox">You are inside another app. Tap the ••• or compass icon and choose <b>Open in Safari</b> first, or <button className="linkbtn" onClick=${copyLink}>copy the link</button> and paste it into Safari.</div>`}
+    <ol className="steps">
+      <li><span className="n">1</span><span>Open Inner Circle in <b>Safari</b>.</span></li>
+      <li><span className="n">2</span><span>Tap the <b>Share</b> button ${ShareGlyph} at the bottom of the screen (at the top on an iPad).</span></li>
+      <li><span className="n">3</span><span>Scroll down and tap <b>Add to Home Screen</b> ${AddGlyph}.</span></li>
+      <li><span className="n">4</span><span>Tap <b>Add</b>. Then open Inner Circle from your home screen and sign in once more.</span></li>
+    </ol></div>`;
+  return html`<ol className="steps">
+    <li><span className="n">1</span><span>Tap the <b>three dots</b> in the top corner of Chrome.</span></li>
+    <li><span className="n">2</span><span>Tap <b>Install app</b> (or <b>Add to Home screen</b>).</span></li>
+    <li><span className="n">3</span><span>Tap <b>Install</b>. The icon appears on your home screen.</span></li>
+  </ol>`;
+}
+
 /* =====================  welcome (first time in)  ===================== */
 function Welcome({ onDone }) {
-  const { me, easy, setEasy, reloadMe, reloadProfiles } = useApp();
+  const { me, easy, setEasy, reloadMe, reloadProfiles, toast } = useApp();
   const installable = useInstallable();
   const [relation, setRelation] = useState(me.relation || "");
+  const [i, setI] = useState(0);
+  const [busy, setBusy] = useState(false);
   const standalone = isStandalone();
-  async function done() {
+  const [steps] = useState(function () {   /* decided once, so the steps never change under the person */
+    const askPush = pushCanWork() && !pushNeedsInstall() && Notification.permission === "default";
+    return (me.relation ? [] : ["hi"]).concat(standalone ? [] : ["install"]).concat(askPush ? ["push"] : []).concat(["tips"]);
+  });
+  const step = steps[i];
+  const first = (me.display_name || "friend").split(" ")[0];
+  async function finish() {
     lsSet("ic-welcomed", "1");
     if (relation.trim() && relation.trim() !== (me.relation || "")) {
       await sb.from("profiles").update({ relation: relation.trim() }).eq("id", me.id);
@@ -1325,24 +1399,53 @@ function Welcome({ onDone }) {
     }
     onDone();
   }
-  return html`<${Sheet} title=${"Welcome to Inner Circle, " + (me.display_name || "friend")} onClose=${done}>
-    <p className="muted" style=${{ marginTop: 0 }}>Two quick things so it feels right for you.</p>
-    <div style=${{ fontWeight: 600 }}>Text size</div>
-    <div className="row" style=${{ margin: ".4rem 0 1rem" }}>
-      <button className=${"btn grow " + (easy ? "grey" : "")} aria-pressed=${!easy} onClick=${function () { setEasy(false); }}>Standard</button>
-      <button className=${"btn grow " + (easy ? "" : "grey")} aria-pressed=${easy} style=${{ fontSize: "1.1rem" }} onClick=${function () { setEasy(true); }}>Larger</button>
-    </div>
-    <label htmlFor="w-rel" style=${{ fontWeight: 600 }}>How are you related to the family? (optional)</label>
-    <input id="w-rel" className="field" style=${{ marginTop: ".3rem" }} placeholder="Example: Troy's mom, or Troy's old friend" maxLength="60" value=${relation} onChange=${function (e) { setRelation(e.target.value); }} />
-    ${!standalone && html`<div className="installbox">
-      <b>Put Inner Circle on your home screen</b>
-      ${installable
-        ? html`<div><button className="btn" style=${{ marginTop: ".5rem" }} onClick=${runInstall}>Install app</button></div>`
-        : isIOS()
-          ? html`<div className="muted" style=${{ fontSize: ".85rem", marginTop: ".3rem" }}>In Safari tap the Share button, then Add to Home Screen. After that, open Inner Circle from your home screen and sign in once more.</div>`
-          : html`<div className="muted" style=${{ fontSize: ".85rem", marginTop: ".3rem" }}>Tap the three dots in Chrome, then Install app (or Add to Home screen).</div>`}
+  function next() { setI(Math.min(i + 1, steps.length - 1)); }
+  async function turnOnPush() {
+    setBusy(true);
+    try {
+      const r = await pushEnable();
+      if (r !== "granted") toast("No problem. You can turn it on later in Me, then the gear icon.");
+    } catch (e) { toast("Could not turn it on. You can try later in Me, then the gear icon."); }
+    lsSet("ic-push-ask", "1");
+    setBusy(false);
+    next();
+  }
+  const dots = html`<div className="wdots" aria-hidden="true">${steps.map(function (x, k) { return html`<i key=${x} className=${k === i ? "on" : k < i ? "done" : ""}></i>`; })}</div>`;
+  return html`<${Sheet} title="" label="Welcome" onClose=${function () {}}>
+    ${dots}
+    ${step === "hi" && html`<div>
+      <div className="wbig">Hi ${first}! 👋</div>
+      <p className="wsub">This is your family's private space. Only people who were invited can see it.</p>
+      <label htmlFor="w-rel" style=${{ fontWeight: 600 }}>Who are you to the family?</label>
+      <input id="w-rel" className="field" style=${{ marginTop: ".3rem" }} placeholder="Example: Troy's son" maxLength="60" value=${relation} onChange=${function (e) { setRelation(e.target.value); }} />
+      <div className="row" style=${{ marginTop: ".9rem", alignItems: "center" }}>
+        <div className="grow muted">Bigger text</div>
+        <button role="switch" aria-checked=${easy} aria-label="Bigger text" className=${"switch " + (easy ? "on" : "")} onClick=${function () { setEasy(!easy); }}><i></i></button>
+      </div>
+      <button className="btn block wbtn" onClick=${next}>Next</button>
     </div>`}
-    <button className="btn block" style=${{ marginTop: "1rem", height: "3.1rem" }} onClick=${done}>Done</button>
+    ${step === "install" && html`<div>
+      <div className="wbig">Put it on your home screen</div>
+      <p className="wsub">Then it opens like any other app, and it can buzz you when someone posts.</p>
+      <${InstallSteps} installable=${installable} />
+      <button className="btn block wbtn" onClick=${next}>${installable ? "Next" : "I did it"}</button>
+      <button className="linkbtn wskip" onClick=${next}>Skip for now</button>
+    </div>`}
+    ${step === "push" && html`<div>
+      <div className="wbig">Get a buzz 🔔</div>
+      <p className="wsub">We will tell you when family shares a photo, comments, or says hello. Nothing else, ever.</p>
+      <button className="btn block wbtn" disabled=${busy} onClick=${turnOnPush}>Yes, buzz me</button>
+      <button className="linkbtn wskip" onClick=${function () { lsSet("ic-push-ask", "1"); next(); }}>Not now</button>
+    </div>`}
+    ${step === "tips" && html`<div>
+      <div className="wbig">You are in! 🎉</div>
+      <ul className="tips">
+        <li><span>➕</span><span>Tap <b>Share</b> at the bottom to post a photo or video.</span></li>
+        <li><span>❤️</span><span>Double-tap a photo to love it.</span></li>
+        <li><span>👋</span><span>Tap <b>People</b> to say hello to family.</span></li>
+      </ul>
+      <button className="btn block wbtn" onClick=${finish}>Start</button>
+    </div>`}
   </${Sheet}>`;
 }
 
@@ -1590,6 +1693,603 @@ function SinglePost({ id }) {
 }
 
 /* =====================  people  ===================== */
+/* =====================  celebrations (birthdays, anniversaries) and events  ===================== */
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTHS_S = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DIM = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function isLeapY(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+function todayStart() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+function occurrence(m, d) {   /* next time this month and day comes around (a Feb 29 is kept on Feb 28 in other years) */
+  const t0 = todayStart();
+  for (let y = t0.getFullYear(); y <= t0.getFullYear() + 8; y++) {
+    const dd = (m === 2 && d === 29 && !isLeapY(y)) ? 28 : d;
+    const dt = new Date(y, m - 1, dd);
+    if (dt >= t0) return dt;
+  }
+  return new Date(t0.getFullYear() + 1, m - 1, d);
+}
+function daysAway(dt) { return Math.round((new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()) - todayStart()) / 86400000); }
+function awayLabel(n) { return n <= 0 ? "Today" : n === 1 ? "Tomorrow" : "in " + n + " days"; }
+function buildCelebrations(profiles, anniv) {
+  const list = [];
+  Object.keys(profiles).forEach(function (id) {
+    const p = profiles[id];
+    if (!p || p.status !== "approved" || !p.birth_month) return;
+    const dt = occurrence(p.birth_month, p.birth_day);
+    list.push({ kind: "birthday", key: id, title: nm(p) + "'s birthday", name: nm(p), m: p.birth_month, d: p.birth_day, dt: dt, days: daysAway(dt), year: dt.getFullYear() });
+  });
+  (anniv || []).forEach(function (a) {
+    const dt = occurrence(a.month, a.day);
+    list.push({ kind: "anniversary", key: a.id, title: a.title, name: a.title, m: a.month, d: a.day, dt: dt, days: daysAway(dt), year: dt.getFullYear(), years: a.year ? dt.getFullYear() - a.year : 0, anniv: a });
+  });
+  return list.sort(function (x, y) { return x.days - y.days || String(x.name).localeCompare(String(y.name)); });
+}
+function fmtMD(m, d) { return MONTHS[m - 1] + " " + d; }
+
+function MonthDay({ m, d, onM, onD, idp }) {
+  const max = m ? DIM[m - 1] : 31;
+  return html`<div className="row" style=${{ gap: ".5rem" }}>
+    <label className="sr" htmlFor=${idp + "-m"}>Month</label>
+    <select id=${idp + "-m"} className="field" value=${m || ""} onChange=${function (e) { onM(e.target.value ? +e.target.value : 0); }}>
+      <option value="">Month</option>${MONTHS.map(function (n, i) { return html`<option key=${n} value=${i + 1}>${n}</option>`; })}
+    </select>
+    <label className="sr" htmlFor=${idp + "-d"}>Day</label>
+    <select id=${idp + "-d"} className="field" style=${{ maxWidth: "6rem" }} value=${d || ""} onChange=${function (e) { onD(e.target.value ? +e.target.value : 0); }}>
+      <option value="">Day</option>${Array.from({ length: max }, function (_, i) { return html`<option key=${i} value=${i + 1}>${i + 1}</option>`; })}
+    </select>
+  </div>`;
+}
+
+function AnnivForm({ item, onClose, onSaved }) {
+  const { me, toast } = useApp();
+  const [title, setTitle] = useState(item ? item.title : "");
+  const [m, setM] = useState(item ? item.month : 0);
+  const [d, setD] = useState(item ? item.day : 0);
+  const [yr, setYr] = useState(item && item.year ? String(item.year) : "");
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (!title.trim()) { toast("Who is celebrating? Type the names."); return; }
+    if (!m || !d) { toast("Pick the month and the day."); return; }
+    const y = yr.trim() ? parseInt(yr, 10) : null;
+    if (y !== null && (!(y >= 1900 && y <= 2100))) { toast("Type a four-digit year, or leave it blank."); return; }
+    setBusy(true);
+    const row = { title: title.trim(), month: m, day: Math.min(d, DIM[m - 1]), year: y };
+    const r = item ? await sb.from("anniversaries").update(row).eq("id", item.id) : await sb.from("anniversaries").insert(Object.assign({ created_by: me.id }, row));
+    setBusy(false);
+    if (r.error) { toast(r.error.message); return; }
+    toast(item ? "Saved" : "Anniversary added");
+    onSaved();
+  }
+  async function del() {
+    if (!confirm("Delete this anniversary?")) return;
+    const r = await sb.from("anniversaries").delete().eq("id", item.id);
+    if (r.error) { toast(r.error.message); return; }
+    toast("Deleted"); onSaved();
+  }
+  return html`<${Sheet} title=${item ? "Edit anniversary" : "Add an anniversary"} onClose=${onClose}>
+    <label htmlFor="an-t" className="flabel">Who is celebrating?</label>
+    <input id="an-t" className="field" maxLength="80" placeholder="Example: Aunt Maria and Uncle Dev" value=${title} onChange=${function (e) { setTitle(e.target.value); }} />
+    <div className="flabel">Date</div>
+    <${MonthDay} idp="an" m=${m} d=${d} onM=${setM} onD=${setD} />
+    <label htmlFor="an-y" className="flabel">Year they married (optional, shows how many years)</label>
+    <input id="an-y" className="field" inputMode="numeric" maxLength="4" placeholder="Example: 1999" value=${yr} onChange=${function (e) { setYr(e.target.value.replace(/[^0-9]/g, "")); }} />
+    <div className="row" style=${{ marginTop: "1rem" }}>
+      ${item && html`<button className="btn danger" onClick=${del}>Delete</button>`}
+      <button className="btn grey grow" onClick=${onClose}>Cancel</button>
+      <button className="btn grow" disabled=${busy} onClick=${save}>${busy ? "Saving..." : "Save"}</button>
+    </div>
+  </${Sheet}>`;
+}
+
+function BirthdayForSheet({ onClose, onSaved }) {
+  const { profiles, toast } = useApp();
+  const people = Object.keys(profiles).map(function (k) { return profiles[k]; }).filter(function (p) { return p.status === "approved" && !p.birth_month; })
+    .sort(function (a, b) { return nm(a).localeCompare(nm(b)); });
+  const [who, setWho] = useState(people[0] ? people[0].id : "");
+  const [m, setM] = useState(0);
+  const [d, setD] = useState(0);
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (!who || !m || !d) { toast("Pick a person, a month and a day."); return; }
+    setBusy(true);
+    const r = await sb.rpc("set_birthday", { target: who, m: m, d: Math.min(d, DIM[m - 1]) });
+    setBusy(false);
+    if (r.error) { toast(r.error.message); return; }
+    toast("Birthday saved"); onSaved();
+  }
+  return html`<${Sheet} title="Add someone's birthday" onClose=${onClose}>
+    ${people.length === 0 ? html`<p className="muted">Everyone already has a birthday saved.</p>` : html`
+      <label htmlFor="bf-who" className="flabel">Who</label>
+      <select id="bf-who" className="field" value=${who} onChange=${function (e) { setWho(e.target.value); }}>${people.map(function (p) { return html`<option key=${p.id} value=${p.id}>${nm(p)}</option>`; })}</select>
+      <div className="flabel">Birthday (no year needed)</div>
+      <${MonthDay} idp="bf" m=${m} d=${d} onM=${setM} onD=${setD} />
+      <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${save}>${busy ? "Saving..." : "Save"}</button></div>`}
+  </${Sheet}>`;
+}
+
+function WishSheet({ c, onClose, onEdit }) {
+  const { me, profiles, toast } = useApp();
+  const [wishes, setWishes] = useState(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const loaded = useRef(false);
+  const load = useCallback(async function () {
+    const r = await sb.from("wishes").select("*").eq("kind", c.kind).eq("subject", c.key).eq("year", c.year).order("created_at");
+    const rows = r.data || [];
+    setWishes(rows);
+    if (!loaded.current) {
+      loaded.current = true;
+      const mine = rows.find(function (w) { return w.author_id === me.id; });
+      if (mine) setText(mine.body);
+    }
+  }, [c.kind, c.key, c.year, me.id]);
+  useEffect(function () { load(); }, [load]);
+  const mine = (wishes || []).find(function (w) { return w.author_id === me.id; });
+  const quick = c.kind === "birthday" ? ["Happy birthday! 🎉", "Love you! ❤️", "Have the best day!"] : ["Happy anniversary! 💍", "So happy for you both ❤️", "Cheers to many more!"];
+  async function send() {
+    const body = text.trim();
+    if (!body) return;
+    setBusy(true);
+    const r = await sb.from("wishes").upsert({ kind: c.kind, subject: c.key, year: c.year, author_id: me.id, body: body }, { onConflict: "kind,subject,year,author_id" });
+    setBusy(false);
+    if (r.error) { toast(r.error.message); return; }
+    toast(mine ? "Wish updated" : "Wish sent");
+    load();
+  }
+  async function removeMine() {
+    if (!mine) return;
+    await sb.from("wishes").delete().eq("id", mine.id);
+    setText(""); load();
+  }
+  const canEdit = c.kind === "anniversary" && c.anniv && (c.anniv.created_by === me.id || me.role === "admin");
+  const isMe = c.kind === "birthday" && c.key === me.id;
+  return html`<${Sheet} title=${(c.kind === "birthday" ? "🎂 " : "💍 ") + c.title} onClose=${onClose}>
+    <div className="muted" style=${{ marginTop: "-.3rem", marginBottom: ".8rem" }}>${fmtMD(c.m, c.d)} · ${awayLabel(c.days)}${c.years > 0 ? " · " + c.years + (c.years === 1 ? " year" : " years") : ""}</div>
+    ${wishes === null ? html`<div className="muted center" style=${{ padding: "1rem" }}>Loading...</div>`
+      : wishes.length === 0 ? html`<div className="muted" style=${{ padding: ".2rem 0 .8rem" }}>${isMe ? "Wishes from your family will show up here." : "No wishes yet. Be the first."}</div>`
+      : html`<div className="wishes">${wishes.map(function (w) {
+          return html`<div className="wish" key=${w.id}><${Avatar} id=${w.author_id} name=${nm(profiles[w.author_id])} size=${32} /><div><b style=${{ fontWeight: 600 }}>${nm(profiles[w.author_id])}</b><div style=${{ overflowWrap: "anywhere" }}>${w.body}</div></div></div>`;
+        })}</div>`}
+    ${!isMe && html`<div>
+      <div className="qr small" style=${{ padding: ".2rem 0 .5rem", justifyContent: "flex-start" }}>${quick.map(function (q) { return html`<button key=${q} className="chip" onClick=${function () { setText(q); }}>${q}</button>`; })}</div>
+      <label className="sr" htmlFor="wish-in">Your wish</label>
+      <textarea id="wish-in" className="field" rows="3" maxLength="300" placeholder="Write a few kind words..." value=${text} onChange=${function (e) { setText(e.target.value); }}></textarea>
+      <div className="row" style=${{ marginTop: ".6rem" }}>
+        ${mine && html`<button className="btn grey" onClick=${removeMine}>Remove</button>`}
+        <button className="btn grow" disabled=${busy || !text.trim()} onClick=${send}>${busy ? "Sending..." : mine ? "Update my wish" : "Send wish"}</button>
+      </div></div>`}
+    ${canEdit && html`<div style=${{ textAlign: "center", marginTop: ".6rem" }}><button className="linkbtn" onClick=${function () { onEdit(c.anniv); }}>Edit or delete this anniversary</button></div>`}
+  </${Sheet}>`;
+}
+
+function useAnniversaries() {
+  const { tick } = useApp();
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState(false);
+  const load = useCallback(function () {
+    return sb.from("anniversaries").select("*").then(function (r) { if (r.error) { setErr(true); return; } setErr(false); setRows(r.data || []); }).catch(function () { setErr(true); });
+  }, []);
+  useEffect(function () { load(); }, [load, tick]);
+  return { rows: rows, err: err, reload: load };
+}
+
+function Celebrations() {
+  const { me, profiles, back, push, bump } = useApp();
+  const an = useAnniversaries();
+  const [card, setCard] = useState(null);
+  const [form, setForm] = useState(null);
+  const [bf, setBf] = useState(false);
+  const list = buildCelebrations(profiles, an.rows || []);
+  const today = list.filter(function (c) { return c.days === 0; });
+  const soon = list.filter(function (c) { return c.days > 0; });
+  const missing = Object.keys(profiles).map(function (k) { return profiles[k]; }).filter(function (p) { return p.status === "approved" && !p.birth_month; });
+  const iMissing = !(profiles[me.id] && profiles[me.id].birth_month);
+  function lead(c) {
+    return c.kind === "birthday" ? html`<${Avatar} id=${c.key} name=${c.name} size=${46} />` : html`<span className="emo">💍</span>`;
+  }
+  function row(c) {
+    return html`<button className="listrow" key=${c.kind + c.key} onClick=${function () { setCard(c); }}>
+      ${lead(c)}
+      <div className="grow" style=${{ minWidth: 0, textAlign: "left" }}>
+        <div style=${{ fontWeight: 600 }}>${c.title}</div>
+        <div className="muted" style=${{ fontSize: ".85rem" }}>${fmtMD(c.m, c.d)}${c.years > 0 ? " · " + c.years + (c.years === 1 ? " year" : " years") : ""}</div>
+      </div>
+      <div className=${"away" + (c.days <= 7 ? " near" : "")}>${awayLabel(c.days)}</div>
+    </button>`;
+  }
+  if (an.err && !an.rows) return html`<div><${TopBar} title="Special days" back=${back} /><${Failed} what="special days" onRetry=${an.reload} /></div>`;
+  return html`<div>
+    <${TopBar} title="Special days" back=${back} right=${html`<button className="tbtn" onClick=${function () { setForm({}); }}>Add</button>`} />
+    ${!an.rows && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
+    ${an.rows && today.length > 0 && html`<div className="todaybox">${today.map(function (c) {
+      return html`<div className="todaycard" key=${c.kind + c.key}>
+        <div className="big">${c.kind === "birthday" ? "🎂" : "💍"}</div>
+        <div className="grow"><div style=${{ fontWeight: 700, fontSize: "1.05rem" }}>${c.kind === "birthday" ? (c.key === me.id ? "Happy birthday, " + String(c.name).split(" ")[0] + "!" : c.title + " today") : c.title + (c.years > 0 ? " · " + c.years + " years" : "")}</div></div>
+        <button className="btn sm" onClick=${function () { setCard(c); }}>${c.key === me.id ? "See wishes" : "Send a wish"}</button>
+      </div>`;
+    })}</div>`}
+    ${an.rows && soon.length > 0 && html`<div className="hdr">Coming up</div>`}
+    ${an.rows && soon.map(row)}
+    ${an.rows && list.length === 0 && html`<div className="center muted" style=${{ padding: "2.5rem 1.5rem" }}>No special days yet. Add your birthday in Edit profile, and add anniversaries with the Add button.</div>`}
+    ${an.rows && html`<div style=${{ padding: "1rem" }}>
+      ${iMissing && html`<button className="btn block" style=${{ marginBottom: ".6rem" }} onClick=${function () { push({ name: "settings" }); }}>Add my birthday</button>`}
+      <button className="btn grey block" onClick=${function () { setForm({}); }}>Add an anniversary</button>
+      ${(me.role === "admin" || missing.length > 0) && missing.length > 0 && html`<div style=${{ marginTop: ".9rem", textAlign: "center" }}>
+        <div className="muted" style=${{ fontSize: ".85rem" }}>${missing.length} ${missing.length === 1 ? "person has" : "people have"} not added a birthday yet.</div>
+        ${me.role === "admin" && html`<button className="linkbtn" onClick=${function () { setBf(true); }}>Add a birthday for someone</button>`}
+      </div>`}
+    </div>`}
+    ${card && html`<${WishSheet} c=${card} onClose=${function () { setCard(null); }} onEdit=${function (a) { setCard(null); setForm(a); }} />`}
+    ${form && html`<${AnnivForm} item=${form.id ? form : null} onClose=${function () { setForm(null); }} onSaved=${function () { setForm(null); an.reload(); bump(); }} />`}
+    ${bf && html`<${BirthdayForSheet} onClose=${function () { setBf(false); }} onSaved=${function () { setBf(false); bump(); }} />`}
+  </div>`;
+}
+
+/* ---- Events ---- */
+function fmtEvDate(iso) { return new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }); }
+function fmtEvTime(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function evState(ev) {
+  const s = new Date(ev.starts_at).getTime();
+  const e = ev.ends_at ? new Date(ev.ends_at).getTime() : s + 3 * 3600000;
+  const now = Date.now();
+  if (now > e) return { past: true, label: "Ended" };
+  if (now >= s) return { past: false, label: "Happening now", live: true };
+  return { past: false, label: awayLabel(daysAway(new Date(ev.starts_at))) };
+}
+function icsFor(ev) {
+  const z = function (iso) { return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); };
+  const esc = function (t) { return String(t || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\;"); };
+  const end = ev.ends_at || new Date(new Date(ev.starts_at).getTime() + 2 * 3600000).toISOString();
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Inner Circle//EN", "BEGIN:VEVENT", "UID:" + ev.id + "@innercircle", "DTSTAMP:" + z(new Date().toISOString()),
+    "DTSTART:" + z(ev.starts_at), "DTEND:" + z(end), "SUMMARY:" + esc(ev.title), "LOCATION:" + esc([ev.place, ev.address].filter(Boolean).join(", ")), "DESCRIPTION:" + esc(ev.details), "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+}
+async function addToCalendar(ev, toast) {
+  const file = new File([icsFor(ev)], "inner-circle-event.ics", { type: "text/calendar" });
+  try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: ev.title }); return; } }
+  catch (e) { if (e && e.name === "AbortError") return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file); a.download = "inner-circle-event.ics";
+  document.body.appendChild(a); a.click(); a.remove();
+  toast("Calendar file saved. Open it to add the event.");
+}
+function DateBlock({ iso }) {
+  const d = new Date(iso);
+  return html`<div className="dateblock" aria-hidden="true"><span>${MONTHS_S[d.getMonth()]}</span><b>${d.getDate()}</b></div>`;
+}
+
+function EventForm({ ev, onClose, onSaved }) {
+  const { me, toast } = useApp();
+  const pad = function (n) { return String(n).padStart(2, "0"); };
+  const parts = function (iso) { const d = new Date(iso); return { date: d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()), time: pad(d.getHours()) + ":" + pad(d.getMinutes()) }; };
+  const s0 = ev ? parts(ev.starts_at) : { date: "", time: "12:00" };
+  const e0 = ev && ev.ends_at ? parts(ev.ends_at) : { date: "", time: "" };
+  const [title, setTitle] = useState(ev ? ev.title : "");
+  const [date, setDate] = useState(s0.date);
+  const [time, setTime] = useState(s0.time);
+  const [endTime, setEndTime] = useState(e0.time);
+  const [place, setPlace] = useState(ev ? ev.place : "");
+  const [address, setAddress] = useState(ev ? ev.address : "");
+  const [details, setDetails] = useState(ev ? ev.details : "");
+  const [sched, setSched] = useState(ev && Array.isArray(ev.schedule) && ev.schedule.length ? ev.schedule.map(function (x) { return { t: x.t || "", l: x.l || "" }; }) : []);
+  const [album, setAlbum] = useState(true);
+  const [busy, setBusy] = useState(false);
+  function setRow(i, k, v) { setSched(function (cur) { return cur.map(function (r, j) { return j === i ? Object.assign({}, r, { [k]: v }) : r; }); }); }
+  async function save() {
+    if (!title.trim()) { toast("Give the event a name."); return; }
+    if (!date || !time) { toast("Pick the date and the start time."); return; }
+    const start = new Date(date + "T" + time);
+    if (isNaN(start.getTime())) { toast("That date or time does not look right."); return; }
+    let end = null;
+    if (endTime) { end = new Date(date + "T" + endTime); if (end <= start) end = new Date(end.getTime() + 86400000); }
+    setBusy(true);
+    const row = {
+      title: title.trim(), details: details.trim(), starts_at: start.toISOString(), ends_at: end ? end.toISOString() : null,
+      place: place.trim(), address: address.trim(),
+      schedule: sched.filter(function (r) { return r.l.trim(); }).slice(0, 20).map(function (r) { return { t: r.t.trim().slice(0, 20), l: r.l.trim().slice(0, 80) }; })
+    };
+    try {
+      if (ev) {
+        const r = await sb.from("events").update(row).eq("id", ev.id);
+        if (r.error) throw r.error;
+      } else {
+        let albumId = null;
+        if (album) {
+          albumId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
+          const a = await sb.from("albums").insert({ id: albumId, owner_id: me.id, name: title.trim().slice(0, 60) });
+          if (a.error) throw a.error;
+        }
+        const r = await sb.from("events").insert(Object.assign({ created_by: me.id, album_id: albumId }, row));
+        if (r.error) { if (albumId) await sb.from("albums").delete().eq("id", albumId); throw r.error; }
+      }
+      toast(ev ? "Event saved" : "Event created. The family has been told.");
+      onSaved();
+    } catch (err) { toast((err && err.message) || "Could not save the event."); }
+    setBusy(false);
+  }
+  return html`<${Sheet} title=${ev ? "Edit event" : "New event"} onClose=${onClose}>
+    <label htmlFor="ev-t" className="flabel">What is it?</label>
+    <input id="ev-t" className="field" maxLength="80" placeholder="Example: Wedding shower, Thanksgiving, Reunion" value=${title} onChange=${function (e) { setTitle(e.target.value); }} />
+    <div className="row" style=${{ gap: ".6rem", marginTop: ".2rem" }}>
+      <div className="grow"><label htmlFor="ev-d" className="flabel">Date</label><input id="ev-d" className="field" type="date" value=${date} onChange=${function (e) { setDate(e.target.value); }} /></div>
+    </div>
+    <div className="row" style=${{ gap: ".6rem" }}>
+      <div className="grow"><label htmlFor="ev-s" className="flabel">Starts</label><input id="ev-s" className="field" type="time" value=${time} onChange=${function (e) { setTime(e.target.value); }} /></div>
+      <div className="grow"><label htmlFor="ev-e" className="flabel">Ends (optional)</label><input id="ev-e" className="field" type="time" value=${endTime} onChange=${function (e) { setEndTime(e.target.value); }} /></div>
+    </div>
+    <label htmlFor="ev-p" className="flabel">Where? (optional)</label>
+    <input id="ev-p" className="field" maxLength="120" placeholder="Example: The lake house" value=${place} onChange=${function (e) { setPlace(e.target.value); }} />
+    <label htmlFor="ev-a" className="flabel">Street address (optional, makes a map link)</label>
+    <input id="ev-a" className="field" maxLength="200" placeholder="Example: 123 Lake Rd, Canton, GA" value=${address} onChange=${function (e) { setAddress(e.target.value); }} />
+    <label htmlFor="ev-n" className="flabel">Details (optional)</label>
+    <textarea id="ev-n" className="field" rows="3" maxLength="2000" placeholder="What to wear, parking, anything people should know" value=${details} onChange=${function (e) { setDetails(e.target.value); }}></textarea>
+    <div className="flabel">Schedule (optional)</div>
+    ${sched.map(function (r, i) {
+      return html`<div className="row" key=${i} style=${{ gap: ".4rem", marginBottom: ".4rem" }}>
+        <input className="field" style=${{ maxWidth: "6.5rem" }} aria-label=${"Time " + (i + 1)} placeholder="2:00 PM" maxLength="20" value=${r.t} onChange=${function (e) { setRow(i, "t", e.target.value); }} />
+        <input className="field" aria-label=${"What happens " + (i + 1)} placeholder="Ceremony" maxLength="80" value=${r.l} onChange=${function (e) { setRow(i, "l", e.target.value); }} />
+        <button className="ibtn" aria-label=${"Remove line " + (i + 1)} onClick=${function () { setSched(function (cur) { return cur.filter(function (_, j) { return j !== i; }); }); }}><${Icon} n="close" s=${18} sw=${2.4} /></button>
+      </div>`;
+    })}
+    ${sched.length < 20 && html`<button className="linkbtn" onClick=${function () { setSched(function (cur) { return cur.concat([{ t: "", l: "" }]); }); }}>+ Add a schedule line</button>`}
+    ${!ev && html`<div style=${{ marginTop: ".6rem" }}><${Check} on=${album} label="Make a shared photo album for it" sub="Everyone can add photos from the event page" onClick=${function () { setAlbum(!album); }} /></div>`}
+    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${save}>${busy ? "Saving..." : ev ? "Save" : "Create event"}</button></div>
+  </${Sheet}>`;
+}
+
+function Events() {
+  const { me, back, push, tick, bump } = useApp();
+  const [events, setEvents] = useState(null);
+  const [rsvps, setRsvps] = useState([]);
+  const [err, setErr] = useState(false);
+  const [form, setForm] = useState(false);
+  const [showPast, setShowPast] = useState(false);
+  const load = useCallback(async function () {
+    const r = await sb.from("events").select("*").order("starts_at", { ascending: true }).limit(200);
+    if (r.error) { setErr(true); return; }
+    setErr(false); setEvents(r.data || []);
+    const ids = (r.data || []).map(function (e) { return e.id; });
+    if (ids.length) { const q = await sb.from("event_rsvps").select("event_id,user_id,status,guests").in("event_id", ids); setRsvps(q.data || []); }
+  }, []);
+  useEffect(function () { load(); }, [load, tick]);
+  const upcoming = (events || []).filter(function (e) { return !evState(e).past; });
+  const past = (events || []).filter(function (e) { return evState(e).past; }).reverse();
+  function card(e) {
+    const st = evState(e);
+    const mine = rsvps.find(function (x) { return x.event_id === e.id && x.user_id === me.id; });
+    const going = rsvps.filter(function (x) { return x.event_id === e.id && x.status === "yes"; });
+    const heads = going.reduce(function (n, x) { return n + 1 + (x.guests || 0); }, 0);
+    return html`<button className="evcard" key=${e.id} onClick=${function () { push({ name: "event", id: e.id }); }}>
+      <${DateBlock} iso=${e.starts_at} />
+      <div className="grow" style=${{ minWidth: 0, textAlign: "left" }}>
+        <div style=${{ fontWeight: 700, fontSize: "1.05rem" }}>${e.title}</div>
+        <div className="muted" style=${{ fontSize: ".85rem" }}>${fmtEvTime(e.starts_at)}${e.place ? " · " + e.place : ""}</div>
+        <div style=${{ fontSize: ".8rem", marginTop: ".2rem" }}>${heads > 0 ? heads + " going" : "No RSVPs yet"}${mine ? " · You: " + (mine.status === "yes" ? "Going" : mine.status === "maybe" ? "Maybe" : "Can't go") : ""}</div>
+      </div>
+      <span className=${"pillx" + (st.live ? " live" : st.past ? " old" : "")}>${st.label}</span>
+    </button>`;
+  }
+  if (err && !events) return html`<div><${TopBar} title="Events" back=${back} /><${Failed} what="events" onRetry=${load} /></div>`;
+  return html`<div>
+    <${TopBar} title="Events" back=${back} right=${html`<button className="tbtn" onClick=${function () { setForm(true); }}>New</button>`} />
+    ${!events && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
+    ${events && upcoming.length === 0 && html`<div className="cmtempty">
+      <div className="bub"><span style=${{ fontSize: "1.8rem" }}>🎉</span></div>
+      <div className="serif" style=${{ fontSize: "1.25rem", color: "#2f5d50" }}>Plan something together</div>
+      <div className="muted" style=${{ margin: ".2rem 0 1rem" }}>A shower, a reunion, Thanksgiving. Everyone can RSVP, sign up to bring something, and share photos.</div>
+      <button className="btn" onClick=${function () { setForm(true); }}>Create the first event</button>
+    </div>`}
+    ${upcoming.map(card)}
+    ${past.length > 0 && html`<div style=${{ padding: ".6rem 1rem" }}><button className="linkbtn" onClick=${function () { setShowPast(!showPast); }}>${showPast ? "Hide past events" : "Show past events (" + past.length + ")"}</button></div>`}
+    ${showPast && past.map(card)}
+    ${form && html`<${EventForm} onClose=${function () { setForm(false); }} onSaved=${function () { setForm(false); load(); bump(); }} />`}
+  </div>`;
+}
+
+function EventPhotos({ ev }) {
+  const { push, tick } = useApp();
+  const [posts, setPosts] = useState(null);
+  const [total, setTotal] = useState(0);
+  useEffect(function () {
+    if (!ev.album_id) return;
+    sb.from("album_posts").select("post_id").eq("album_id", ev.album_id).then(function (a) {
+      const ids = (a.data || []).map(function (x) { return x.post_id; });
+      setTotal(ids.length);
+      if (!ids.length) { setPosts([]); return; }
+      return sb.from("posts").select("id,image_path,video_path,created_at").in("id", ids).order("created_at", { ascending: false }).limit(9).then(function (p) { setPosts(p.data || []); });
+    }).catch(function () { setPosts([]); });
+  }, [ev.album_id, tick]);
+  const urls = useUrls((posts || []).map(function (p) { return p.image_path; }));
+  if (!ev.album_id) return null;
+  return html`<div className="evsec">
+    <div className="evh"><h3>Photos</h3>${total > 0 && html`<button className="linkbtn" onClick=${function () { push({ name: "album", id: ev.album_id }); }}>See all ${total}</button>`}</div>
+    ${posts && posts.length > 0 && html`<div className="evphotos">${posts.map(function (p) {
+      return html`<button key=${p.id} onClick=${function () { push({ name: "album", id: ev.album_id }); }} aria-label="Open the photo album">${urls(p.image_path) ? html`<img src=${urls(p.image_path)} alt="" />` : html`<span></span>`}${p.video_path && html`<i className="vplay" aria-hidden="true"></i>`}</button>`;
+    })}</div>`}
+    ${posts && posts.length === 0 && html`<div className="muted" style=${{ fontSize: ".9rem", padding: ".2rem 0 .6rem" }}>No photos yet. Be the first to add one.</div>`}
+    <button className="btn grey block" style=${{ marginTop: ".5rem" }} onClick=${function () { push({ name: "new", albumId: ev.album_id, albumName: ev.title }); }}>Add photos or a video</button>
+  </div>`;
+}
+
+function BringList({ ev }) {
+  const { me, profiles, toast, tick } = useApp();
+  const [items, setItems] = useState(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async function () {
+    const r = await sb.from("event_items").select("*").eq("event_id", ev.id).order("created_at");
+    setItems(r.data || []);
+  }, [ev.id]);
+  useEffect(function () { load(); }, [load, tick]);
+  async function add() {
+    const label = text.trim();
+    if (!label) return;
+    setBusy(true);
+    const r = await sb.from("event_items").insert({ event_id: ev.id, label: label, created_by: me.id });
+    setBusy(false);
+    if (r.error) { toast(r.error.message); return; }
+    setText(""); load();
+  }
+  async function claim(it, on) {
+    const r = await sb.rpc("claim_event_item", { p_item: it.id, p_claim: on });
+    if (r.error) toast(/already/i.test(r.error.message) ? "Someone just claimed that one." : r.error.message);
+    load();
+  }
+  async function del(it) {
+    if (!confirm("Remove \"" + it.label + "\" from the list?")) return;
+    const r = await sb.from("event_items").delete().eq("id", it.id);
+    if (r.error) toast(r.error.message);
+    load();
+  }
+  const canDelete = function (it) { return it.created_by === me.id || ev.created_by === me.id || me.role === "admin"; };
+  return html`<div className="evsec">
+    <div className="evh"><h3>Who is bringing what</h3></div>
+    ${items && items.length === 0 && html`<div className="muted" style=${{ fontSize: ".9rem", paddingBottom: ".5rem" }}>Nothing on the list yet. Add a dish or a job, and people can sign up for it.</div>`}
+    ${(items || []).map(function (it) {
+      const mine = it.claimed_by === me.id;
+      return html`<div className="bring" key=${it.id}>
+        <div className="grow" style=${{ minWidth: 0 }}>
+          <div style=${{ fontWeight: 600, overflowWrap: "anywhere" }}>${it.label}</div>
+          <div className="muted" style=${{ fontSize: ".8rem" }}>${it.claimed_by ? (mine ? "You are bringing this" : nm(profiles[it.claimed_by]) + " is bringing this") : "Still needed"}</div>
+        </div>
+        ${!it.claimed_by && html`<button className="btn sm" onClick=${function () { claim(it, true); }}>I'll bring it</button>`}
+        ${(mine || (it.claimed_by && me.role === "admin")) && html`<button className="btn sm grey" onClick=${function () { claim(it, false); }}>${mine ? "Not me" : "Release"}</button>`}
+        ${canDelete(it) && html`<button className="ibtn" aria-label=${"Remove " + it.label} onClick=${function () { del(it); }}><${Icon} n="close" s=${16} sw=${2.4} color="#8a8a8a" /></button>`}
+      </div>`;
+    })}
+    <div className="row" style=${{ marginTop: ".5rem" }}>
+      <label className="sr" htmlFor="bring-in">Add something to the list</label>
+      <input id="bring-in" className="field" maxLength="60" placeholder="Add something, like Mashed potatoes" value=${text} onChange=${function (e) { setText(e.target.value); }} onKeyDown=${function (e) { if (e.key === "Enter") add(); }} />
+      <button className="btn" disabled=${busy || !text.trim()} onClick=${add}>Add</button>
+    </div>
+  </div>`;
+}
+
+function EventScreen({ id }) {
+  const { me, profiles, back, toast, tick, bump } = useApp();
+  const [ev, setEv] = useState(undefined);
+  const [rsvps, setRsvps] = useState([]);
+  const [err, setErr] = useState(false);
+  const [edit, setEdit] = useState(false);
+  const [who, setWho] = useState(false);
+  const load = useCallback(async function () {
+    const e = await sb.from("events").select("*").eq("id", id).maybeSingle();
+    if (e.error) { setErr(true); return; }
+    setErr(false); setEv(e.data || null);
+    const r = await sb.from("event_rsvps").select("*").eq("event_id", id);
+    setRsvps(r.data || []);
+  }, [id]);
+  useEffect(function () { load(); }, [load, tick]);
+  const mine = rsvps.find(function (r) { return r.user_id === me.id; });
+  async function setStatus(status) {
+    if (mine && mine.status === status) {
+      const r = await sb.from("event_rsvps").delete().match({ event_id: id, user_id: me.id });
+      if (r.error) { toast(r.error.message); return; }
+    } else {
+      const r = await sb.from("event_rsvps").upsert({ event_id: id, user_id: me.id, status: status, guests: status === "no" ? 0 : (mine ? mine.guests : 0), updated_at: new Date().toISOString() }, { onConflict: "event_id,user_id" });
+      if (r.error) { toast(r.error.message); return; }
+    }
+    load(); bump();
+  }
+  async function setGuests(n) {
+    if (!mine) return;
+    const g = Math.max(0, Math.min(10, n));
+    const r = await sb.from("event_rsvps").upsert({ event_id: id, user_id: me.id, status: mine.status, guests: g, updated_at: new Date().toISOString() }, { onConflict: "event_id,user_id" });
+    if (r.error) { toast(r.error.message); return; }
+    load();
+  }
+  async function del() {
+    if (!confirm("Delete this event? The photo album stays.")) return;
+    const r = await sb.from("events").delete().eq("id", id);
+    if (r.error) { toast(r.error.message); return; }
+    toast("Event deleted"); bump(); back();
+  }
+  if (err && ev === undefined) return html`<div><${TopBar} title="Event" back=${back} /><${Failed} what="this event" onRetry=${load} /></div>`;
+  if (ev === undefined) return html`<div><${TopBar} title="Event" back=${back} /><div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div></div>`;
+  if (ev === null) return html`<div><${TopBar} title="Event" back=${back} /><div className="center muted" style=${{ padding: "3rem 1rem" }}>This event is no longer here.</div></div>`;
+  const st = evState(ev);
+  const yes = rsvps.filter(function (r) { return r.status === "yes"; });
+  const maybe = rsvps.filter(function (r) { return r.status === "maybe"; });
+  const heads = yes.reduce(function (n, r) { return n + 1 + (r.guests || 0); }, 0);
+  const canManage = ev.created_by === me.id || me.role === "admin";
+  const mapQ = encodeURIComponent(ev.address || ev.place || "");
+  const sched = Array.isArray(ev.schedule) ? ev.schedule : [];
+  const rs = function (key, label) {
+    return html`<button className=${"rsvpbtn" + (mine && mine.status === key ? " on " + key : "")} aria-pressed=${!!(mine && mine.status === key)} onClick=${function () { setStatus(key); }}>${label}</button>`;
+  };
+  return html`<div>
+    <${TopBar} title="Event" back=${back} right=${canManage ? html`<button className="tbtn" onClick=${function () { setEdit(true); }}>Edit</button>` : null} />
+    <div className="evhero">
+      <${DateBlock} iso=${ev.starts_at} />
+      <div className="grow" style=${{ minWidth: 0 }}>
+        <h2 className="serif" style=${{ margin: 0, color: "#2f5d50", fontSize: "1.5rem", lineHeight: 1.15, overflowWrap: "anywhere" }}>${ev.title}</h2>
+        <div style=${{ marginTop: ".3rem" }}><span className=${"pillx" + (st.live ? " live" : st.past ? " old" : "")}>${st.label}</span></div>
+      </div>
+    </div>
+    <div className="evsec" style=${{ paddingTop: 0 }}>
+      <div className="evline"><b>${fmtEvDate(ev.starts_at)}</b><span>${fmtEvTime(ev.starts_at)}${ev.ends_at ? " to " + fmtEvTime(ev.ends_at) : ""}</span></div>
+      ${(ev.place || ev.address) && html`<div className="evline"><b>${ev.place || ev.address}</b>${ev.place && ev.address && html`<span>${ev.address}</span>`}
+        <a className="linkbtn" href=${"https://www.google.com/maps/search/?api=1&query=" + mapQ} target="_blank" rel="noopener noreferrer">Open in maps</a></div>`}
+      ${ev.details && html`<p style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: ".6rem 0 0" }}>${ev.details}</p>`}
+      ${!st.past && html`<button className="linkbtn" style=${{ marginTop: ".4rem" }} onClick=${function () { addToCalendar(ev, toast); }}>Add to my calendar</button>`}
+    </div>
+    ${!st.past && html`<div className="evsec">
+      <div className="evh"><h3>Are you coming?</h3></div>
+      <div className="rsvprow">${rs("yes", "Going")}${rs("maybe", "Maybe")}${rs("no", "Can't go")}</div>
+      ${mine && mine.status !== "no" && html`<div className="row" style=${{ marginTop: ".6rem", alignItems: "center" }}>
+        <div className="grow muted">Bringing guests?</div>
+        <button className="stepbtn" aria-label="Fewer guests" onClick=${function () { setGuests(mine.guests - 1); }}>−</button>
+        <b style=${{ minWidth: "5.2rem", textAlign: "center" }}>${mine.guests === 0 ? "Just me" : "+" + mine.guests + (mine.guests === 1 ? " guest" : " guests")}</b>
+        <button className="stepbtn" aria-label="More guests" onClick=${function () { setGuests(mine.guests + 1); }}>+</button>
+      </div>`}
+    </div>`}
+    <div className="evsec">
+      <div className="evh"><h3>${heads} going${maybe.length > 0 ? " · " + maybe.length + " maybe" : ""}</h3>${(yes.length + maybe.length) > 0 && html`<button className="linkbtn" onClick=${function () { setWho(!who); }}>${who ? "Hide" : "See who"}</button>`}</div>
+      ${who && html`<div className="whos">${yes.concat(maybe).map(function (r) {
+        return html`<div key=${r.user_id} className="whorow"><${Avatar} id=${r.user_id} name=${nm(profiles[r.user_id])} size=${30} /><span className="grow">${nm(profiles[r.user_id])}${r.guests > 0 ? " +" + r.guests : ""}</span><span className="muted" style=${{ fontSize: ".8rem" }}>${r.status === "yes" ? "Going" : "Maybe"}</span></div>`;
+      })}</div>`}
+    </div>
+    ${sched.length > 0 && html`<div className="evsec"><div className="evh"><h3>Schedule</h3></div>
+      ${sched.map(function (r, i) { return html`<div className="schedrow" key=${i}><b>${r.t || ""}</b><span>${r.l}</span></div>`; })}</div>`}
+    <${BringList} ev=${ev} />
+    <${EventPhotos} ev=${ev} />
+    ${canManage && html`<div style=${{ padding: "1rem" }}><button className="btn danger block" onClick=${del}>Delete this event</button></div>`}
+    <div style=${{ height: "1rem" }}></div>
+    ${edit && html`<${EventForm} ev=${ev} onClose=${function () { setEdit(false); }} onSaved=${function () { setEdit(false); load(); bump(); }} />`}
+  </div>`;
+}
+
+/* Home: today's special days and the next event */
+function HomeCelebrate() {
+  const { profiles, push } = useApp();
+  const an = useAnniversaries();
+  const { tick } = useApp();
+  const [ev, setEv] = useState(null);
+  const [card, setCard] = useState(null);
+  useEffect(function () {
+    sb.from("events").select("id,title,starts_at,ends_at,place").gte("starts_at", new Date(Date.now() - 6 * 3600000).toISOString()).order("starts_at", { ascending: true }).limit(1)
+      .then(function (r) { setEv((r.data || [])[0] || null); }).catch(function () {});
+  }, [tick]);
+  const today = buildCelebrations(profiles, an.rows || []).filter(function (c) { return c.days === 0; }).slice(0, 3);
+  const evSoon = ev && daysAway(new Date(ev.starts_at)) <= 45 ? ev : null;
+  const st = evSoon ? evState(evSoon) : null;
+  if (!today.length && !evSoon) return null;
+  return html`<div>
+    ${today.map(function (c) {
+      return html`<div className="pcard slim" key=${c.kind + c.key}>
+        <div style=${{ fontSize: "1.7rem" }} aria-hidden="true">${c.kind === "birthday" ? "🎂" : "💍"}</div>
+        <div className="grow"><div className="pt" style=${{ fontSize: "1rem" }}>${c.kind === "birthday" ? "It's " + c.title.replace(/'s birthday$/, "") + "'s birthday!" : c.title + (c.years > 0 ? ": " + c.years + " years today!" : " today!")}</div></div>
+        <button className="btn sm" onClick=${function () { setCard(c); }}>Wish</button>
+      </div>`;
+    })}
+    ${evSoon && html`<button className="newscard evsoon" onClick=${function () { push({ name: "event", id: evSoon.id }); }}>
+      <span className="row"><${DateBlock} iso=${evSoon.starts_at} /><span className="grow" style=${{ minWidth: 0 }}><b style=${{ display: "block", color: "#2f5d50" }}>${evSoon.title}</b><span className="muted" style=${{ fontSize: ".85rem" }}>${fmtEvTime(evSoon.starts_at)}${evSoon.place ? " · " + evSoon.place : ""}</span></span>
+        <span className=${"pillx" + (st.live ? " live" : "")}>${st.label}</span></span>
+    </button>`}
+    ${card && html`<${WishSheet} c=${card} onClose=${function () { setCard(null); }} onEdit=${function () { setCard(null); push({ name: "celebrations" }); }} />`}
+  </div>`;
+}
+
+
 function People() {
   const { me, profiles, push, tick, openHello, pendingCount } = useApp();
   const [last, setLast] = useState(null);
@@ -1644,6 +2344,14 @@ function People() {
       <div className="muted" style=${{ padding: "0 1rem .1rem", fontSize: ".85rem" }}>${members.length} ${members.length === 1 ? "person" : "people"}. Everyone here was invited by family.</div>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)", borderBottom: "1px solid var(--soft)", margin: ".5rem 0" }} onClick=${function () { push({ name: "groups" }); }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>My groups</div><div className="muted" style=${{ fontSize: ".8rem" }}>Share with just some family, like Siblings or Grandkids</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
+      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "events" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Events</div><div className="muted" style=${{ fontSize: ".8rem" }}>RSVP, sign up to bring something, share photos</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
+      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "celebrations" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Birthdays and anniversaries</div><div className="muted" style=${{ fontSize: ".8rem" }}>Never miss a special day, send a wish</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>
       ${active.map(function (m) { return row(m, false); })}
@@ -1850,6 +2558,8 @@ function Settings() {
   const [name, setName] = useState(me.display_name || "");
   const [relation, setRelation] = useState(me.relation || "");
   const [bio, setBio] = useState(me.bio || "");
+  const [bm, setBm] = useState(me.birth_month || 0);
+  const [bd, setBd] = useState(me.birth_day || 0);
   const [busy, setBusy] = useState(false);
   const [arch, setArch] = useState("");
   const [pushOn, setPushOn] = useState(false);
@@ -1939,8 +2649,13 @@ function Settings() {
   async function save() {
     const n = name.trim();
     if (!n) { toast("Your name cannot be empty."); return; }
+    if ((bm && !bd) || (!bm && bd)) { toast("Pick both the month and the day for your birthday."); return; }
     setBusy(true);
     const r = await sb.from("profiles").update({ display_name: n, relation: relation.trim(), bio: bio.trim() }).eq("id", me.id);
+    if (!r.error && bm && bd && (bm !== me.birth_month || bd !== me.birth_day)) {
+      const b = await sb.rpc("set_birthday", { target: me.id, m: bm, d: Math.min(bd, DIM[bm - 1]) });
+      if (b.error) { setBusy(false); toast(b.error.message); return; }
+    }
     setBusy(false);
     if (r.error) { toast(r.error.message); return; }
     toast("Profile saved");
@@ -1970,6 +2685,8 @@ function Settings() {
         <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".3rem" }}>Everyone sees this next to your name, so people know who you are.</div>
         <label htmlFor="s-bio" className="flabel">About you</label>
         <textarea id="s-bio" className="field" rows="3" maxLength="300" value=${bio} onChange=${function (e) { setBio(e.target.value); }} placeholder="Where you live, what you love, how to say hello..."></textarea>
+        <div className="flabel">Birthday (no year, so family can celebrate you)</div>
+        <${MonthDay} idp="s-bd" m=${bm} d=${bd} onM=${setBm} onD=${setBd} />
       </div>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "prefs" }); }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>Favorites, loves and this-or-that picks</div></div>
@@ -2020,7 +2737,7 @@ function Settings() {
           <li>Your photos stay in a private vault that only your Inner Circle can open.</li>
         </ul>
       </div>
-      <div style=${{ padding: "1rem" }}><button className="btn grey block" onClick=${function () { sb.auth.signOut(); }}>Sign out</button></div>
+      <div style=${{ padding: "1rem" }}><button className="btn grey block" onClick=${signOutClean}>Sign out</button></div>
     </div>`;
 }
 
@@ -2489,7 +3206,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
   const savedScroll = useRef(null);
 
   const loadProfiles = useCallback(async function () {
-    const r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path");
+    const r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day");
     const m = {};
     (r.data || []).forEach(function (x) { m[x.id] = x; });
     setProfiles(m);
@@ -2607,11 +3324,14 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "profile": return html`<${Profile} userId=${route.userId} root=${false} />`;
       case "post": return html`<${SinglePost} id=${route.id} />`;
       case "comments": return html`<${Comments} postId=${route.postId} />`;
-      case "new": return html`<${NewPost} day=${route.day} promptId=${route.promptId} promptText=${route.promptText} />`;
+      case "new": return html`<${NewPost} day=${route.day} promptId=${route.promptId} promptText=${route.promptText} albumId=${route.albumId} albumName=${route.albumName} />`;
       case "groups": return html`<${GroupsScreen} />`;
       case "prompt": return html`<${PromptScreen} id=${route.id} />`;
       case "news": return html`<${NewsScreen} />`;
       case "album": return html`<${AlbumScreen} id=${route.id} />`;
+      case "celebrations": return html`<${Celebrations} />`;
+      case "events": return html`<${Events} />`;
+      case "event": return html`<${EventScreen} id=${route.id} />`;
       case "story": return html`<${StoryViewer} authorId=${route.authorId} />`;
       case "settings": return html`<${Settings} />`;
       case "prefs": return html`<${PrefsEditor} />`;
@@ -2623,7 +3343,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
 
   const root = stack[0];
   const top = stack[stack.length - 1];
-  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "organizer", "groups", "prompt", "news", "album"].indexOf(top.name) >= 0;
+  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "organizer", "groups", "prompt", "news", "album", "celebrations", "events", "event"].indexOf(top.name) >= 0;
   const topKey = stack.length + ":" + top.name + (top.userId || top.postId || top.id || top.authorId || "");
 
   const tabs = [
