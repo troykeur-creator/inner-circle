@@ -930,6 +930,7 @@ function Home() {
       ${noteSheet && html`<${NoteSheet} target=${noteSheet} onClose=${function () { setNoteSheet(null); }} onDone=${load} />`}
       <${PushAsk} />
       <${HomeCelebrate} />
+      <${BackupReminder} />
       ${me.role === "admin" && memberCount <= 1 && posts && html`<${GettingStarted} hasPosts=${posts.length > 0} />`}
       ${posts.length === 0 && !(me.role === "admin" && memberCount <= 1) && html`
         <div className="center" style=${{ padding: "3rem 1.5rem" }}>
@@ -2153,6 +2154,7 @@ function EventPhotos({ ev }) {
     })}</div>`}
     ${posts && posts.length === 0 && html`<div className="muted" style=${{ fontSize: ".9rem", padding: ".2rem 0 .6rem" }}>No photos yet. Be the first to add one.</div>`}
     <button className="btn grey block" style=${{ marginTop: ".5rem" }} onClick=${function () { push({ name: "new", albumId: ev.album_id, albumName: ev.title }); }}>Add photos or a video</button>
+    ${total > 0 && html`<button className="btn grey block" style=${{ marginTop: ".5rem" }} onClick=${function () { push({ name: "wall", id: ev.id }); }}>Start the photo wall (for a TV)</button>`}
   </div>`;
 }
 
@@ -2301,6 +2303,7 @@ function EventScreen({ id }) {
       ${sched.map(function (r, i) { return html`<div className="schedrow" key=${i}><b>${r.t || ""}</b><span>${r.l}</span></div>`; })}</div>`}
     <${BringList} ev=${ev} />
     <${EventPhotos} ev=${ev} />
+    <${EventMessages} ev=${ev} />
     ${canManage && html`<div style=${{ padding: "1rem" }}><button className="btn danger block" onClick=${del}>Delete this event</button></div>`}
     <div style=${{ height: "1rem" }}></div>
     ${edit && html`<${EventForm} ev=${ev} onClose=${function () { setEdit(false); }} onSaved=${function () { setEdit(false); load(); bump(); }} />`}
@@ -2355,6 +2358,246 @@ function HomeCelebrate() {
       })}
     </section>`}
     ${card && html`<${WishSheet} c=${card} onClose=${function () { setCard(null); }} onEdit=${function () { setCard(null); push({ name: "celebrations" }); }} />`}
+  </div>`;
+}
+
+
+/* =====================  Round 4: photo wall, event messages, backup  ===================== */
+function PhotoWall({ id }) {
+  const { profiles, back } = useApp();
+  const [ev, setEv] = useState(undefined);
+  const [items, setItems] = useState([]);
+  const [curKey, setCurKey] = useState(null);
+  const [ui, setUi] = useState(true);
+  const [paused, setPaused] = useState(false);
+  const seen = useRef(new Set());
+  const itemsRef = useRef([]);
+  const load = useCallback(async function () {
+    try {
+      const e = await sb.from("events").select("id,title,album_id").eq("id", id).maybeSingle();
+      setEv(e.data || null);
+      if (!e.data || !e.data.album_id) { setItems([]); return; }
+      const a = await sb.from("album_posts").select("post_id").eq("album_id", e.data.album_id);
+      const ids = (a.data || []).map(function (x) { return x.post_id; });
+      if (!ids.length) { setItems([]); return; }
+      const p = await sb.from("posts").select("id,author_id,caption,image_path,video_path,extra_paths,created_at").in("id", ids).order("created_at", { ascending: false }).limit(200);
+      const list = [];
+      (p.data || []).forEach(function (x) {
+        [x.image_path].concat(x.extra_paths || []).filter(Boolean).forEach(function (pt, k) { list.push({ key: x.id + ":" + k, path: pt, who: x.author_id, cap: k === 0 ? x.caption : "" }); });
+      });
+      itemsRef.current = list;
+      setItems(list);
+    } catch (err) { /* keep showing what we have */ }
+  }, [id]);
+  useEffect(function () { load(); const t = setInterval(load, 20000); return function () { clearInterval(t); }; }, [load]);
+  /* advance: show the newest photo nobody has seen yet, otherwise go on to the next one */
+  useEffect(function () {
+    if (paused) return;
+    function step() {
+      const list = itemsRef.current;
+      if (!list.length) return;
+      const fresh = list.find(function (x) { return !seen.current.has(x.key); });
+      setCurKey(function (cur) {
+        let next;
+        if (fresh) next = fresh.key;
+        else { const i = list.findIndex(function (x) { return x.key === cur; }); next = list[(i + 1) % list.length].key; }
+        seen.current.add(next);
+        return next;
+      });
+    }
+    if (curKey === null) step();
+    const t = setInterval(step, 7000);
+    return function () { clearInterval(t); };
+  }, [paused, items.length > 0]);
+  useEffect(function () {   // keep the screen awake while the wall is up
+    let lock = null;
+    try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then(function (l) { lock = l; }).catch(function () {}); } catch (e) {}
+    function k(e) { if (e.key === "Escape") back(); }
+    window.addEventListener("keydown", k);
+    return function () { window.removeEventListener("keydown", k); try { if (lock) lock.release(); } catch (e) {} };
+  }, []);
+  const idx = items.findIndex(function (x) { return x.key === curKey; });
+  const cur = idx >= 0 ? items[idx] : null;
+  const ahead = [0, 1, 2].map(function (k) { const x = items[(Math.max(idx, 0) + k) % Math.max(items.length, 1)]; return x && x.path; }).filter(Boolean);
+  const urls = useUrls(ahead);
+  function goFull() { try { const el = document.documentElement; if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen(); } catch (e) {} }
+  return html`<div className="wall" onClick=${function () { setUi(!ui); }}>
+    ${cur && urls(cur.path) ? html`<img key=${cur.key} className="wallimg" src=${urls(cur.path)} alt=${"Photo shared by " + nm(profiles[cur.who])} />` : null}
+    ${!cur && html`<div className="wallmsg">${ev === undefined ? "Loading..." : ev === null ? "This event is no longer here." : "Photos will appear here as the family shares them."}</div>`}
+    ${cur && html`<div className="wallcap"><b>${nm(profiles[cur.who])}</b>${cur.cap ? html`<span>${cur.cap}</span>` : null}</div>`}
+    ${ui && html`<div className="wallbar" onClick=${function (e) { e.stopPropagation(); }}>
+      <button className="wbtn2" onClick=${back}>Close</button>
+      <span className="wallt">${ev ? ev.title : ""}${items.length ? " · " + (Math.max(idx, 0) + 1) + " of " + items.length : ""}</span>
+      <button className="wbtn2" onClick=${function () { setPaused(!paused); }}>${paused ? "Play" : "Pause"}</button>
+      <button className="wbtn2" onClick=${goFull}>Full screen</button>
+    </div>`}
+  </div>`;
+}
+
+function EventMessages({ ev }) {
+  const { me, profiles, toast, tick, bump } = useApp();
+  const [rows, setRows] = useState(null);
+  const [text, setText] = useState("");
+  const [voice, setVoice] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async function () {
+    const r = await sb.from("event_messages").select("*").eq("event_id", ev.id).order("created_at", { ascending: false }).limit(300);
+    setRows(r.data || []);
+  }, [ev.id]);
+  useEffect(function () { load(); }, [load, tick]);
+  const urls = useUrls((rows || []).map(function (m) { return m.audio_path; }));
+  async function send() {
+    if (!text.trim() && !voice) return;
+    setBusy(true);
+    let path = null;
+    try {
+      if (voice) {
+        const ext = /mp4/.test(voice.blob.type) ? "m4a" : "webm";
+        path = me.id + "/" + ((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now())) + "." + ext;
+        const up = await sb.storage.from("photos").upload(path, voice.blob, { contentType: voice.blob.type || "audio/webm" });
+        if (up.error) throw up.error;
+      }
+      const r = await sb.from("event_messages").insert({ event_id: ev.id, author_id: me.id, body: text.trim(), audio_path: path, audio_seconds: voice ? Math.max(1, Math.round(voice.seconds)) : null });
+      if (r.error) throw r.error;
+      setText(""); setVoice(null); toast("Message added"); await load(); bump();
+    } catch (e) {
+      if (path) sb.storage.from("photos").remove([path]);
+      toast((e && e.message) || "Could not save your message.");
+    }
+    setBusy(false);
+  }
+  async function del(m) {
+    if (!confirm("Delete this message?")) return;
+    const r = await sb.from("event_messages").delete().eq("id", m.id);
+    if (r.error) { toast(r.error.message); return; }
+    if (m.audio_path) sb.storage.from("photos").remove([m.audio_path]);
+    load();
+  }
+  function keepsake() {
+    const lines = ["Messages for " + ev.title, fmtEvDate(ev.starts_at), ""];
+    (rows || []).slice().reverse().forEach(function (m) {
+      lines.push(nm(profiles[m.author_id]) + " (" + new Date(m.created_at).toLocaleDateString() + ")");
+      lines.push(m.body || "(voice message, not included in this file)");
+      lines.push("");
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/plain" }));
+    a.download = "messages.txt";
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  const canManage = ev.created_by === me.id || me.role === "admin";
+  return html`<div className="evsec">
+    <div className="evh"><h3>Messages and well wishes</h3>${canManage && rows && rows.length > 0 && html`<button className="linkbtn" onClick=${keepsake}>Save as a file</button>`}</div>
+    <label className="sr" htmlFor="emsg-in">Write a message</label>
+    <textarea id="emsg-in" className="field" rows="3" maxLength="600" placeholder="Write a few kind words..." value=${text} onChange=${function (e) { setText(e.target.value); }} style=${{ marginTop: ".5rem" }}></textarea>
+    <div style=${{ margin: ".5rem 0" }}><${VoiceRecorder} value=${voice} onChange=${setVoice} /></div>
+    <button className="btn block" disabled=${busy || (!text.trim() && !voice)} onClick=${send}>${busy ? "Saving..." : "Add my message"}</button>
+    ${rows && rows.length === 0 && html`<div className="muted" style=${{ fontSize: ".9rem", paddingTop: ".6rem" }}>No messages yet. Yours can be the first.</div>`}
+    ${(rows || []).map(function (m) {
+      return html`<div className="wish" key=${m.id}>
+        <${Avatar} id=${m.author_id} name=${nm(profiles[m.author_id])} size=${32} />
+        <div className="grow" style=${{ minWidth: 0 }}>
+          <b style=${{ fontWeight: 600 }}>${nm(profiles[m.author_id])}</b>
+          ${m.body && html`<div style=${{ overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}><${Linkify} text=${m.body} /></div>`}
+          ${m.audio_path && (urls(m.audio_path) ? html`<audio controls preload="none" src=${urls(m.audio_path)} style=${{ width: "100%", marginTop: ".3rem" }} aria-label=${"Voice message from " + nm(profiles[m.author_id])}></audio>` : html`<div className="muted" style=${{ fontSize: ".85rem" }}>Loading voice message...</div>`)}
+        </div>
+        ${(m.author_id === me.id || canManage) && html`<button className="ibtn" aria-label="Delete this message" onClick=${function () { del(m); }}><${Icon} n="close" s=${16} sw=${2.4} color="#8a8a8a" /></button>`}
+      </div>`;
+    })}
+  </div>`;
+}
+
+/* ---- admin backup ---- */
+async function runBackup(withMedia, setStatus) {
+  const fetchAll = async function (t, sel) {
+    const out = [];
+    for (let from = 0; from < 20000; from += 1000) {
+      const r = await sb.from(t).select(sel || "*").range(from, from + 999);
+      if (r.error) throw r.error;
+      const d = r.data || [];
+      out.push.apply(out, d);
+      if (d.length < 1000) break;
+    }
+    return out;
+  };
+  setStatus("Reading your family's posts...");
+  const names = ["posts", "comments", "news", "prompts", "albums", "album_posts", "events", "event_rsvps", "event_items", "event_messages", "anniversaries", "wishes"];
+  const data = { made: new Date().toISOString(), note: "Everything the account that made this backup is allowed to see." };
+  data.profiles = await fetchAll("profiles", "id,display_name,bio,relation,role,status,created_at,birth_month,birth_day");
+  for (let i = 0; i < names.length; i++) { setStatus("Reading " + names[i].replace("_", " ") + "..."); data[names[i]] = await fetchAll(names[i]); }
+  const mod = await import("https://esm.sh/jszip@3.10.1");
+  const JSZip = mod.default || mod;
+  const zip = new JSZip();
+  zip.file("data.json", JSON.stringify(data, null, 1));
+  zip.file("README.txt", "Inner Circle backup made " + new Date().toLocaleString() + ".\ndata.json holds posts, comments, events, messages and people (no phone numbers).\n" + (withMedia ? "The media folder holds photos, videos and voice messages, named by their path in the vault.\n" : "This copy has text only. Photos and videos are not in it.\n") + "Keep this file private: it contains your family's memories.\n");
+  let skipped = 0;
+  if (withMedia) {
+    const paths = new Set();
+    (data.posts || []).forEach(function (p) { allPaths(p).forEach(function (x) { paths.add(x); }); });
+    (data.news || []).forEach(function (n) { if (n.audio_path) paths.add(n.audio_path); });
+    (data.event_messages || []).forEach(function (m) { if (m.audio_path) paths.add(m.audio_path); });
+    (data.profiles || []).forEach(function () {});
+    const list = Array.from(paths);
+    let done = 0;
+    for (let i = 0; i < list.length; i += 20) {
+      const chunk = list.slice(i, i + 20);
+      await ensureUrls(chunk);
+      for (let k = 0; k < chunk.length; k++) {
+        done++;
+        setStatus("Saving file " + done + " of " + list.length + "...");
+        const c = urlCache.get(chunk[k]);
+        if (!c) { skipped++; continue; }
+        try { const res = await fetch(c.url); if (!res.ok) throw new Error("x"); zip.file("media/" + chunk[k], await res.blob(), { compression: "STORE" }); }
+        catch (e) { skipped++; }
+      }
+    }
+  }
+  setStatus("Packing it up...");
+  const out = await zip.generateAsync({ type: "blob", streamFiles: true });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(out);
+  a.download = "inner-circle-backup-" + new Date().toISOString().slice(0, 10) + (withMedia ? "" : "-text") + ".zip";
+  document.body.appendChild(a); a.click(); a.remove();
+  lsSet("ic-backup-at", String(Date.now()));
+  return { posts: (data.posts || []).length, skipped: skipped };
+}
+
+function BackupSection() {
+  const { toast } = useApp();
+  const [status, setStatus] = useState("");
+  const [last, setLast] = useState(Number(lsGet("ic-backup-at", "0")) || 0);
+  async function go(media) {
+    if (media && !confirm("This downloads every photo and video. It can be very large and slow. Use Wi-Fi and, if you can, a computer. Continue?")) return;
+    try {
+      const r = await runBackup(media, setStatus);
+      setLast(Date.now());
+      toast("Backup saved" + (r.skipped ? " (" + r.skipped + " files could not be read)" : ""));
+    } catch (e) { toast((e && e.message) || "The backup did not finish. Try again."); }
+    setStatus("");
+  }
+  return html`<div>
+    <h2 className="serif sec">Back up</h2>
+    <div className="muted" style=${{ fontSize: ".85rem", marginBottom: ".6rem" }}>Save a copy of what your account can see. It does not include private group posts from other people. For a complete copy of the database, also use Backups in your Supabase dashboard (paid plans).</div>
+    <div className="muted" style=${{ fontSize: ".8rem", marginBottom: ".5rem" }}>${last ? "Last backup from this device: " + new Date(last).toLocaleDateString() : "No backup from this device yet."}</div>
+    ${status ? html`<div role="status" style=${{ fontWeight: 600 }}>${status}</div>` : html`<div className="row">
+      <button className="btn grow" onClick=${function () { go(false); }}>Text only (small)</button>
+      <button className="btn grey grow" onClick=${function () { go(true); }}>With photos and videos</button></div>`}
+  </div>`;
+}
+
+function BackupReminder() {
+  const { me, push } = useApp();
+  const [hide, setHide] = useState(false);
+  if (me.role !== "admin" || hide) return null;
+  const last = Number(lsGet("ic-backup-at", "0")) || 0;
+  const snooze = Number(lsGet("ic-backup-snooze", "0")) || 0;
+  const base = last || new Date(me.created_at || Date.now()).getTime();
+  const days = Math.floor((Date.now() - base) / 86400000);
+  if (days < 30 || Date.now() - snooze < 7 * 86400000) return null;
+  return html`<div className="pcard slim">
+    <div className="grow"><div className="pk">Back up</div><div className="pt" style=${{ fontSize: ".95rem" }}>${last ? "It has been " + days + " days since your last backup." : "Save a copy of your family's memories."}</div></div>
+    <button className="btn sm" onClick=${function () { push({ name: "organizer" }); }}>Back up</button>
+    <button className="ibtn" aria-label="Remind me next week" onClick=${function () { lsSet("ic-backup-snooze", String(Date.now())); setHide(true); }}><${Icon} n="close" s=${16} sw=${2.4} color="#8a8a8a" /></button>
   </div>`;
 }
 
@@ -2530,6 +2773,8 @@ function Organizer() {
         ${used !== null && html`<h2 className="serif sec">Storage</h2>
           <div className="meter" role="img" aria-label=${"Using " + Math.round(used / 1048576) + " megabytes of 1 gigabyte"}><i style=${{ width: Math.min(100, used / 10737418.24) + "%" }}></i></div>
           <div className="muted" style=${{ fontSize: ".8rem", marginTop: ".3rem" }}>${used < 1048576 * 1000 ? Math.round(used / 1048576) + " MB" : (used / 1073741824).toFixed(2) + " GB"} of 1 GB used (the free plan limit). ${used > 858993459 ? "Getting full. Consider upgrading in Supabase." : ""}</div>`}
+
+        <${BackupSection} />
 
         <h2 className="serif sec">Family code</h2>
         <div className="muted" style=${{ fontSize: ".8rem", marginBottom: ".5rem" }}>Anyone who types this code is let in right away, so share it carefully. Change it any time to close that door.</div>
@@ -3414,6 +3659,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "celebrations": return html`<${Celebrations} />`;
       case "events": return html`<${Events} />`;
       case "event": return html`<${EventScreen} id=${route.id} />`;
+      case "wall": return html`<${PhotoWall} id=${route.id} />`;
       case "story": return html`<${StoryViewer} authorId=${route.authorId} />`;
       case "settings": return html`<${Settings} />`;
       case "prefs": return html`<${PrefsEditor} />`;
