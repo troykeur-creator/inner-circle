@@ -722,7 +722,7 @@ function PostCard({ post, onChange, albumId }) {
   const startRef = useRef(null);
   const [idx, setIdx] = useState(0);
   const lastTap = useRef(0);
-  const paths = post.video_path ? [] : postPaths(post);
+  const paths = post.video_path ? (post.extra_paths || []) : postPaths(post);
   const vp = post.video_path;
   const urls = useUrls(allPaths(post));
   const author = profiles[post.author_id] || {};
@@ -1267,7 +1267,6 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
         toast((err && err.message) || "Could not prepare that video.");
         return null;
       });
-    setFiles([]);
     setVideo(info);
   }
 
@@ -1276,7 +1275,6 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
     const tooBig = chosen.filter(function (f) { return isGif(f) && gifProblem(f); });
     if (tooBig.length) { toast(gifProblem(tooBig[0])); chosen = chosen.filter(function (f) { return tooBig.indexOf(f) < 0; }); }
     if (!chosen.length) { e.target.value = ""; return; }
-    if (video) setVideo(null);
     setFiles(function (cur) {
       const room = MAX_PHOTOS - cur.length;
       if (chosen.length > room) toast("You can add up to " + MAX_PHOTOS + " photos to one post.");
@@ -1291,10 +1289,24 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
     setBusy("Sharing...");
     const uploaded = [];
     try {
+      let res = null;
       if (video) {
         setBusy("Preparing video...");
-        const res = await video.promise;
+        res = await video.promise;
         if (!res) { setBusy(""); return; }
+      }
+      for (let k = 0; k < files.length; k++) {
+        setBusy(files.length > 1 ? "Uploading " + (k + 1) + " of " + files.length + "..." : "Uploading...");
+        const gif = isGif(files[k].file);
+        if (gif && gifProblem(files[k].file)) throw new Error(gifProblem(files[k].file));
+        const blob = gif ? files[k].file : await shrink(files[k].file);
+        const path = me.id + "/" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + k) + (gif ? ".gif" : ".jpg");
+        const up = await sb.storage.from("photos").upload(path, blob, { contentType: gif ? "image/gif" : "image/jpeg" });
+        if (up.error) throw up.error;
+        uploaded.push(path);
+      }
+      const photoPaths = uploaded.slice();
+      if (video) {
         setBusy("Uploading video...");
         const id = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
         const ext = /mp4/.test(res.blob.type) ? "mp4" : "webm";
@@ -1306,7 +1318,7 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
         const u2 = await sb.storage.from("photos").upload(ppath, res.poster, { contentType: "image/jpeg" });
         if (u2.error) throw u2.error;
         uploaded.push(ppath);
-        const rv = await sb.from("posts").insert(Object.assign({ id: postId, author_id: me.id, caption: caption.trim(), image_path: ppath, video_path: vpath, video_seconds: Math.round(res.seconds), extra_paths: [], place: place.trim(), also_day: alsoDay }, meta));
+        const rv = await sb.from("posts").insert(Object.assign({ id: postId, author_id: me.id, caption: caption.trim(), image_path: ppath, video_path: vpath, video_seconds: Math.round(res.seconds), extra_paths: photoPaths, place: place.trim(), also_day: alsoDay }, meta));
         if (rv.error) throw rv.error;
         if (albumId) await sb.from("album_posts").insert({ album_id: albumId, post_id: postId, added_by: me.id });
         toast("Shared with your Inner Circle");
@@ -1314,16 +1326,6 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
         bump();
         if (aud.mode === "all") offerNudge();
         return;
-      }
-      for (let k = 0; k < files.length; k++) {
-        setBusy(files.length > 1 ? "Uploading " + (k + 1) + " of " + files.length + "..." : "Uploading...");
-        const gif = isGif(files[k].file);
-        if (gif && gifProblem(files[k].file)) throw new Error(gifProblem(files[k].file));
-        const blob = gif ? files[k].file : await shrink(files[k].file);
-        const path = me.id + "/" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + k) + (gif ? ".gif" : ".jpg");
-        const up = await sb.storage.from("photos").upload(path, blob, { contentType: gif ? "image/gif" : "image/jpeg" });
-        if (up.error) throw up.error;
-        uploaded.push(path);
       }
       const r = await sb.from("posts").insert(Object.assign({
         id: postId, author_id: me.id, caption: caption.trim(), image_path: uploaded[0] || null, extra_paths: uploaded.slice(1),
@@ -1367,7 +1369,7 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
           placeholder="Tell them what is happening, who is in it, how it felt..." value=${caption} onChange=${function (e) { setCaption(e.target.value); }}></textarea>
         <div style=${{ display: "flex", justifyContent: "flex-end", marginTop: "-.3rem" }}><${EmojiBtn} onPick=${function (em) { setCaption(function (c) { return (c + em).slice(0, 3000); }); }} /></div>
       </div>
-      ${files.length > 1 && html`<div className="collage">
+      ${(files.length > 1 || (video && files.length >= 1)) && html`<div className="collage">
         ${(showAll ? files : files.slice(0, 5)).map(function (f, k) {
           const over = !showAll && k === 4 && files.length > 5;
           const span = showAll ? 2 : spanFor(files.length, k);
@@ -1380,6 +1382,7 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
       </div>
       <div className="row" style=${{ padding: ".5rem 1rem 0" }}>
         ${files.length < MAX_PHOTOS && html`<button className="linkbtn" onClick=${function () { input.current.click(); }}>+ Add more photos</button>`}
+        ${!video && html`<button className="linkbtn" onClick=${function () { vinput.current.click(); }}>+ Add a video</button>`}
         <span className="grow"></span>
         ${showAll && files.length > 5 && html`<button className="linkbtn" onClick=${function () { setShowAll(false); }}>Show fewer</button>`}
       </div>`}
@@ -1389,10 +1392,12 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
           ${video.status === "working" && html`<div className="muted" style=${{ fontSize: ".8rem", marginTop: ".2rem" }}>Keep this screen open. Longer clips take about as long to prepare as they last.</div>`}
           ${video.trimmed && html`<div className="muted" style=${{ fontSize: ".8rem", marginTop: ".2rem" }}>${video.longOk ? "Videos can be up to 3 minutes, so we kept the first 3 minutes." : "Only one video longer than 30 seconds can be shared per day, so we kept the first 30 seconds."}</div>`}
           ${video.status === "ready" && video.seconds > SHORT_VIDEO_S && html`<div className="muted" style=${{ fontSize: ".8rem", marginTop: ".2rem" }}>This is your long video for today.</div>`}
-          <button className="linkbtn" onClick=${function () { setVideo(null); }}>Remove video</button>
+          <div className="row" style=${{ flexWrap: "wrap" }}><button className="linkbtn" onClick=${function () { setVideo(null); }}>Remove video</button>
+            ${files.length === 0 && html`<button className="linkbtn" onClick=${function () { input.current.click(); }}>+ Add photos</button>`}</div>
         </div>`
         : null}
-      ${files.length === 1 && html`<div style=${{ padding: ".4rem 1rem 0" }}><button className="linkbtn" onClick=${function () { drop(0); }}>Remove photo</button></div>`}
+      ${files.length === 1 && !video && html`<div className="row" style=${{ padding: ".4rem 1rem 0", flexWrap: "wrap" }}><button className="linkbtn" onClick=${function () { drop(0); }}>Remove photo</button>
+        <button className="linkbtn" onClick=${function () { input.current.click(); }}>+ Add more photos</button><button className="linkbtn" onClick=${function () { vinput.current.click(); }}>+ Add a video</button></div>`}
       <div className="opt">
         <label className="sr" htmlFor="np-place">Add a place</label>
         <input id="np-place" className="field" style=${{ border: 0, background: "#fff", padding: 0, height: "2.75rem" }} placeholder="Add a place" maxLength="80" value=${place} onChange=${function (e) { setPlace(e.target.value); }} />
@@ -2182,6 +2187,7 @@ function Profile({ userId, root }) {
             ${x.image_path ? (u ? html`<img src=${u} alt="" loading="lazy" />` : null) : html`<div className="t">${x.caption}</div>`}
             ${x.video_path && html`<span className="multi"><${Icon} n="play" s=${18} fill="#fff" sw=${0} color="#fff" /></span>`}
             ${!x.video_path && (x.extra_paths || []).length > 0 && html`<span className="multi"><${Icon} n="stack" s=${16} sw=${2} color="#fff" /></span>`}
+            ${x.video_path && (x.extra_paths || []).length > 0 && html`<span className="multi stackv"><${Icon} n="stack" s=${16} sw=${2} color="#fff" /></span>`}
           </button>`;
         })}
       </div>
