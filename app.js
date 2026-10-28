@@ -539,17 +539,20 @@ const EMOJI = [
 ].map(function (c) { return { name: c[0], list: Array.from(new Set(c[1].split(" ").filter(Boolean))) }; });
 
 function EmojiSheet({ onPick, onClose }) {
-  const [tab, setTab] = useState(0);
-  const recent = (function () { try { return JSON.parse(lsGet("ic-emoji-recent", "[]")) || []; } catch (e) { return []; } })();
+  const readRecent = function () { try { return JSON.parse(lsGet("ic-emoji-recent", "[]")) || []; } catch (e) { return []; } };
+  const [recent, setRecent] = useState(readRecent);
+  const [tab, setTab] = useState(function () { return readRecent().length ? "Recent" : EMOJI[0].name; });
   const tabs = (recent.length ? [{ name: "Recent", list: recent }] : []).concat(EMOJI);
-  const cur = tabs[Math.min(tab, tabs.length - 1)];
+  const cur = tabs.find(function (t) { return t.name === tab; }) || tabs[0];
   function choose(em) {
-    try { lsSet("ic-emoji-recent", JSON.stringify([em].concat(recent.filter(function (x) { return x !== em; })).slice(0, 24))); } catch (e) {}
+    const next = [em].concat(recent.filter(function (x) { return x !== em; })).slice(0, 24);
+    try { lsSet("ic-emoji-recent", JSON.stringify(next)); } catch (e) {}
+    setRecent(next);
     onPick(em);
   }
   return html`<${Sheet} title="Pick an emoji" onClose=${onClose}>
     <div className="emtabs" role="tablist">${tabs.map(function (t, i) {
-      return html`<button key=${t.name} role="tab" aria-selected=${t === cur} className=${t === cur ? "on" : ""} onClick=${function () { setTab(i); }}>${t.name}</button>`;
+      return html`<button key=${t.name} role="tab" aria-selected=${t === cur} className=${t === cur ? "on" : ""} onClick=${function () { setTab(t.name); }}>${t.name}</button>`;
     })}</div>
     <div className="emgrid">${cur.list.map(function (em) {
       return html`<button key=${em} aria-label=${"Add " + em} onClick=${function () { choose(em); }}>${em}</button>`;
@@ -1580,41 +1583,81 @@ function Welcome({ onDone }) {
   </${Sheet}>`;
 }
 
-/* =====================  get to know me (favorites, loves, duels)  ===================== */
+/* =====================  get to know me (favorites, loves, duels, sentences, emoji, truths and a lie)  ===================== */
+const FAV_GROUPS = ["Food and drink", "Fun and favorites", "Dreams and memories", "Gift ideas"];
 const FAVS = [
-  { k: "color", e: "🎨", l: "Favorite color", ph: "Forest green" },
-  { k: "food", e: "🍽️", l: "Favorite meal", ph: "Grandma's lasagna" },
-  { k: "dessert", e: "🍰", l: "Sweet tooth pick", ph: "Peach cobbler" },
-  { k: "drink", e: "☕", l: "Go-to drink", ph: "Black coffee" },
-  { k: "movie", e: "🎬", l: "Favorite movie", ph: "It's a Wonderful Life" },
-  { k: "music", e: "🎵", l: "Music I love", ph: "Motown and classic rock" },
-  { k: "book", e: "📚", l: "Favorite book", ph: "Anything by Grisham" },
-  { k: "place", e: "✈️", l: "Dream trip", ph: "Italy in the fall" },
-  { k: "hobby", e: "🎣", l: "Favorite pastime", ph: "Fishing at sunrise" },
-  { k: "gift", e: "🎁", l: "A gift I would love", ph: "A handwritten letter", wide: true },
-  { k: "fun", e: "✨", l: "Something you may not know about me", ph: "I once met a president", wide: true }
+  { g: 0, k: "food", e: "🍽️", l: "Favorite meal", ph: "Grandma's lasagna" },
+  { g: 0, k: "dessert", e: "🍰", l: "Sweet tooth pick", ph: "Peach cobbler" },
+  { g: 0, k: "drink", e: "☕", l: "Go-to drink", ph: "Black coffee" },
+  { g: 0, k: "snack", e: "🍿", l: "Favorite snack", ph: "Kettle corn" },
+  { g: 0, k: "candy", e: "🍬", l: "Candy I can't resist", ph: "Peanut butter cups" },
+  { g: 0, k: "pizza", e: "🍕", l: "Perfect pizza topping", ph: "Sausage and peppers" },
+  { g: 0, k: "restaurant", e: "🍴", l: "Favorite restaurant", ph: "The little Italian place" },
+  { g: 0, k: "comfort", e: "🥣", l: "Comfort food", ph: "Chicken and dumplings" },
+  { g: 0, k: "holidayfood", e: "🦃", l: "Holiday dish I wait all year for", ph: "Aunt Maria's stuffing" },
+  { g: 1, k: "color", e: "🎨", l: "Favorite color", ph: "Forest green" },
+  { g: 1, k: "movie", e: "🎬", l: "Favorite movie", ph: "It's a Wonderful Life" },
+  { g: 1, k: "tv", e: "📺", l: "Show I could watch again and again", ph: "Andy Griffith" },
+  { g: 1, k: "music", e: "🎵", l: "Music I love", ph: "Motown and classic rock" },
+  { g: 1, k: "song", e: "🎶", l: "Song that gets me dancing", ph: "September" },
+  { g: 1, k: "karaoke", e: "🎤", l: "My karaoke song", ph: "Don't Stop Believin'" },
+  { g: 1, k: "book", e: "📚", l: "Favorite book", ph: "Anything by Grisham" },
+  { g: 1, k: "hobby", e: "🎣", l: "Favorite pastime", ph: "Fishing at sunrise" },
+  { g: 1, k: "team", e: "🏈", l: "Team I root for", ph: "Michigan Wolverines" },
+  { g: 1, k: "game", e: "🎲", l: "Favorite game", ph: "Rummikub" },
+  { g: 1, k: "holiday", e: "🎄", l: "Favorite holiday", ph: "Christmas Eve" },
+  { g: 2, k: "place", e: "✈️", l: "Dream trip", ph: "Italy in the fall" },
+  { g: 2, k: "bucket", e: "🪣", l: "On my bucket list", ph: "See the northern lights" },
+  { g: 2, k: "talent", e: "🎭", l: "Hidden talent", ph: "I can whistle with two fingers" },
+  { g: 2, k: "superpower", e: "🦸", l: "Superpower I would pick", ph: "Being able to fly" },
+  { g: 2, k: "kidjob", e: "👷", l: "What I wanted to be when I was little", ph: "A fire truck driver" },
+  { g: 2, k: "advice", e: "💡", l: "Best advice I ever got", ph: "Show up", wide: true },
+  { g: 2, k: "memory", e: "📷", l: "A family memory I treasure", ph: "Summers at the lake", wide: true },
+  { g: 2, k: "proud", e: "🏅", l: "Something I am proud of", ph: "Raising three good kids", wide: true },
+  { g: 2, k: "fun", e: "✨", l: "Something you may not know about me", ph: "I once met a president", wide: true },
+  { g: 3, k: "gift", e: "🎁", l: "A gift I would love", ph: "A handwritten letter", wide: true },
+  { g: 3, k: "giftb", e: "🛍️", l: "Another gift idea", ph: "A good pair of slippers", wide: true },
+  { g: 3, k: "sizes", e: "📏", l: "Sizes for gift giving", ph: "Shirt L, shoe 10, ring 9", wide: true },
+  { g: 3, k: "stores", e: "🏪", l: "Stores and gift cards I like", ph: "Home Depot, Amazon, Starbucks", wide: true }
 ];
-const LOVES = ["Sunday dinners", "Road trips", "The beach", "Mountains", "Gardening", "Board games", "Football", "Baking", "Live music", "Old movies", "Coffee", "Camping", "Reading", "Dogs", "Cats", "Fishing", "Cooking", "History", "Crafts", "Dancing", "Holidays", "Family stories"];
-const NOTS = ["Crowds", "Spicy food", "Early mornings", "Horror movies", "Cilantro", "Traffic", "Loud restaurants", "Flying", "Cold weather", "Small talk", "Mushrooms", "Running late", "Surprises", "Phone calls"];
+const LOVES = ["Sunday dinners", "Road trips", "The beach", "Mountains", "Gardening", "Board games", "Football", "Baking", "Live music", "Old movies", "Coffee", "Camping", "Reading", "Dogs", "Cats", "Fishing", "Cooking", "History", "Crafts", "Dancing", "Holidays", "Family stories", "Puzzles", "Grilling", "Karaoke", "Thrift stores", "Sunrises", "Thunderstorms", "Naps", "Trivia night", "Hiking", "Golf", "Boats", "Jeeps", "Photography", "Shopping", "Movie nights", "Bonfires"];
+const NOTS = ["Crowds", "Spicy food", "Early mornings", "Horror movies", "Cilantro", "Traffic", "Loud restaurants", "Flying", "Cold weather", "Small talk", "Mushrooms", "Running late", "Surprises", "Phone calls", "Heights", "Bugs", "Mondays", "Group photos", "Being late", "Reality TV"];
 const DUELS = [
   ["coffee", "Coffee", "Tea"], ["place", "Beach", "Mountains"], ["taste", "Sweet", "Salty"], ["clock", "Early bird", "Night owl"],
-  ["talk", "Call me", "Text me"], ["pet", "Dogs", "Cats"], ["style", "Homebody", "Adventurer"], ["season", "Summer", "Winter"]
+  ["talk", "Call me", "Text me"], ["pet", "Dogs", "Cats"], ["style", "Homebody", "Adventurer"], ["season", "Summer", "Winter"],
+  ["pizza2", "Thin crust", "Deep dish"], ["choc", "Chocolate", "Vanilla"], ["night", "Movie night", "Game night"], ["plan", "Planner", "Go with the flow"],
+  ["trip", "Road trip", "Plane ride"], ["gifts", "Giving gifts", "Getting gifts"], ["cook", "Cooking at home", "Eating out"], ["hol", "Christmas", "Thanksgiving"],
+  ["party", "Big party", "Quiet gathering"], ["sun", "Sunrise", "Sunset"], ["save", "Saver", "Spender"], ["sing", "Sing along", "Listen quietly"],
+  ["morning", "Breakfast", "Dinner"], ["book", "Book", "Movie"], ["cold", "Hot weather", "Cold weather"], ["gift2", "Handmade", "Store bought"]
 ];
+const SENTENCES = [
+  ["happy", "I am happiest when..."], ["find", "You can always find me..."], ["say", "My family would say I am..."], ["perfect", "My perfect Sunday is..."],
+  ["without", "I cannot live without..."], ["laugh", "Nothing makes me laugh harder than..."], ["lottery", "If I won the lottery, first I would..."], ["tradition", "A tradition I love is..."],
+  ["guilty", "My guilty pleasure is..."], ["trip", "The best trip I ever took was..."], ["good", "I am surprisingly good at..."], ["wish", "A skill I wish I had is..."],
+  ["kid", "When I was a kid, I..."], ["grateful", "Right now I am grateful for..."], ["dinner", "At a dinner with anyone, living or not, I would invite..."], ["remember", "I want my grandkids to remember..."]
+];
+const MAX_EMOJI = 8;
 function getPrefs(p) {
   const x = (p && p.prefs) || {};
-  return { fav: x.fav || {}, loves: x.loves || [], nots: x.nots || [], duel: x.duel || {} };
+  return { fav: x.fav || {}, loves: x.loves || [], nots: x.nots || [], duel: x.duel || {}, say: x.say || {}, emoji: x.emoji || [],
+    tl: x.tl && Array.isArray(x.tl.t) && x.tl.t.length === 3 && typeof x.tl.lie === "number" ? x.tl : null };
 }
+const PREFS_GOAL = 20;
 function prefsProgress(p) {
   const x = getPrefs(p);
-  const done = FAVS.filter(function (f) { return (x.fav[f.k] || "").trim(); }).length + (x.loves.length ? 1 : 0) + (x.nots.length ? 1 : 0) + DUELS.filter(function (d) { return x.duel[d[0]]; }).length;
-  return { done: done, total: FAVS.length + 2 + DUELS.length };
+  const done = FAVS.filter(function (f) { return (x.fav[f.k] || "").trim(); }).length + (x.loves.length ? 1 : 0) + (x.nots.length ? 1 : 0)
+    + DUELS.filter(function (d) { return x.duel[d[0]]; }).length + Object.keys(x.say).filter(function (k) { return (x.say[k] || "").trim(); }).length
+    + (x.emoji.length ? 1 : 0) + (x.tl ? 1 : 0);
+  return { done: done, total: PREFS_GOAL, full: done >= PREFS_GOAL };
 }
 function norm(t) { return String(t || "").trim().toLowerCase(); }
 function isColor(v) { try { return !!(window.CSS && CSS.supports && CSS.supports("color", String(v).trim().toLowerCase())); } catch (e) { return false; } }
 
 function Chips({ options, picked, onToggle, onAdd, max, tone }) {
   const [custom, setCustom] = useState("");
+  const [more, setMore] = useState(false);
   const all = options.concat(picked.filter(function (x) { return options.indexOf(x) < 0; }));
+  const shown = more || all.length <= 18 ? all : all.filter(function (o, i) { return i < 18 || picked.indexOf(o) >= 0; });
   function add(e) {
     e.preventDefault();
     const v = custom.trim();
@@ -1624,10 +1667,10 @@ function Chips({ options, picked, onToggle, onAdd, max, tone }) {
     setCustom("");
   }
   return html`<div>
-    <div className="chips">${all.map(function (o) {
+    <div className="chips">${shown.map(function (o) {
       const on = picked.indexOf(o) >= 0;
       return html`<button type="button" key=${o} className=${"chip " + tone + (on ? " on" : "")} aria-pressed=${on} onClick=${function () { onToggle(o); }}>${o}</button>`;
-    })}</div>
+    })}${shown.length < all.length && html`<button type="button" className="chip" onClick=${function () { setMore(true); }}>Show ${all.length - shown.length} more</button>`}</div>
     <form className="row" style=${{ marginTop: ".6rem" }} onSubmit=${add}>
       <label className="sr" htmlFor=${"chip-" + tone}>Add your own</label>
       <input id=${"chip-" + tone} className="field" style=${{ height: "2.75rem" }} placeholder="Add your own..." maxLength="30" value=${custom} onChange=${function (e) { setCustom(e.target.value); }} />
@@ -1642,14 +1685,23 @@ function PrefsEditor() {
   const [loves, setLoves] = useState(init.loves);
   const [nots, setNots] = useState(init.nots);
   const [duel, setDuel] = useState(init.duel);
+  const [say, setSay] = useState(init.say);
+  const [emoji, setEmoji] = useState(init.emoji);
+  const [tl, setTl] = useState(init.tl ? { t: init.tl.t.slice(), lie: init.tl.lie } : { t: ["", "", ""], lie: -1 });
+  const [openS, setOpenS] = useState(Object.keys(init.say));
   const [busy, setBusy] = useState(false);
-  const pr = prefsProgress({ prefs: { fav: fav, loves: loves, nots: nots, duel: duel } });
+  const tlOk = tl.t.every(function (s) { return s.trim(); }) && tl.lie >= 0;
+  const cur = { fav: fav, loves: loves, nots: nots, duel: duel, say: say, emoji: emoji, tl: tlOk ? { t: tl.t.map(function (s) { return s.trim(); }), lie: tl.lie } : null };
+  const pr = prefsProgress({ prefs: cur });
   const tog = function (list, set) { return function (o) { set(list.indexOf(o) >= 0 ? list.filter(function (x) { return x !== o; }) : list.concat([o])); }; };
   async function save() {
     setBusy(true);
-    const clean = {};
+    const clean = {}; const cleanSay = {};
     Object.keys(fav).forEach(function (k) { const v = (fav[k] || "").trim(); if (v) clean[k] = v; });
-    const r = await sb.from("profiles").update({ prefs: { fav: clean, loves: loves, nots: nots, duel: duel } }).eq("id", me.id);
+    Object.keys(say).forEach(function (k) { const v = (say[k] || "").trim(); if (v) cleanSay[k] = v; });
+    const out = { fav: clean, loves: loves, nots: nots, duel: duel, say: cleanSay, emoji: emoji };
+    if (cur.tl) out.tl = cur.tl;
+    const r = await sb.from("profiles").update({ prefs: out }).eq("id", me.id);
     setBusy(false);
     if (r.error) { toast(r.error.message); return; }
     toast("Saved. Your family can get to know you better.");
@@ -1657,29 +1709,64 @@ function PrefsEditor() {
     reloadProfiles();
     back();
   }
+  const H = function (t, sub, top) { return html`<div style=${{ margin: (top || "1.4rem") + " 1rem .5rem" }}><h2 className="serif sec" style=${{ margin: 0 }}>${t}</h2>${sub && html`<div className="muted" style=${{ fontSize: ".85rem" }}>${sub}</div>`}</div>`; };
+  const freeS = SENTENCES.filter(function (s) { return openS.indexOf(s[0]) < 0; });
   return html`<div>
     <${TopBar} title="Get to know me" back=${back} right=${html`<button className="tbtn" onClick=${save} disabled=${busy}>${busy ? "..." : "Save"}</button>`} />
     <div style=${{ padding: "1rem 1rem 0" }}>
-      <div style=${{ fontWeight: 600 }}>${pr.done} of ${pr.total} answered</div>
-      <div className="meter" style=${{ marginTop: ".4rem" }}><i style=${{ width: Math.round(pr.done * 100 / pr.total) + "%" }}></i></div>
-      <p className="muted" style=${{ fontSize: ".85rem" }}>Skip anything you like. Little things help family pick gifts, plan dinners and start conversations.</p>
+      <div style=${{ fontWeight: 600 }}>${pr.full ? "🎉 " : ""}${pr.done} answered${pr.full ? ". Your family can really get to know you!" : ""}</div>
+      <div className="meter" style=${{ marginTop: ".4rem" }}><i style=${{ width: Math.min(100, Math.round(pr.done * 100 / pr.total)) + "%" }}></i></div>
+      <p className="muted" style=${{ fontSize: ".85rem" }}>Answer as many or as few as you like. Little things help family pick gifts, plan dinners and start conversations. You can come back and add more any time.</p>
     </div>
 
-    <h2 className="serif sec" style=${{ margin: ".6rem 1rem .5rem" }}>My favorites</h2>
-    <div style=${{ padding: "0 1rem" }}>${FAVS.map(function (f) {
-      return html`<div key=${f.k} style=${{ marginBottom: ".8rem" }}>
-        <label htmlFor=${"fv-" + f.k} style=${{ fontWeight: 600, fontSize: ".9rem" }}><span aria-hidden="true">${f.e} </span>${f.l}</label>
-        <input id=${"fv-" + f.k} className="field" style=${{ marginTop: ".25rem" }} maxLength="80" placeholder=${"Example: " + f.ph} value=${fav[f.k] || ""}
-          onChange=${function (e) { const v = e.target.value; setFav(function (o) { return Object.assign({}, o, { [f.k]: v }); }); }} /></div>`;
-    })}</div>
+    ${H("Me in emoji", "Pick up to " + MAX_EMOJI + " emoji that sum you up. Tap one to remove it.", ".6rem")}
+    <div style=${{ padding: "0 1rem" }}>
+      <div className="myemoji">${emoji.length === 0 && html`<span className="muted">None yet</span>`}${emoji.map(function (em, i) {
+        return html`<button type="button" key=${i} aria-label=${"Remove " + em} onClick=${function () { setEmoji(emoji.filter(function (_, j) { return j !== i; })); }}>${em}</button>`;
+      })}${emoji.length < MAX_EMOJI && html`<${EmojiBtn} onPick=${function (em) { setEmoji(function (c) { return c.length < MAX_EMOJI ? c.concat([em]) : c; }); }} />`}</div>
+    </div>
 
-    <h2 className="serif sec" style=${{ margin: "1rem 1rem .5rem" }}>Things I love</h2>
-    <div style=${{ padding: "0 1rem" }}><${Chips} options=${LOVES} picked=${loves} max=${14} tone="love" onToggle=${tog(loves, setLoves)} onAdd=${function (v) { setLoves(loves.concat([v])); }} /></div>
+    ${FAV_GROUPS.map(function (gname, gi) {
+      return html`<div key=${gname}>${H(gname, gi === 0 ? "" : "", gi === 0 ? "1.4rem" : "1.4rem")}
+        <div style=${{ padding: "0 1rem" }}>${FAVS.filter(function (f) { return f.g === gi; }).map(function (f) {
+          return html`<div key=${f.k} style=${{ marginBottom: ".8rem" }}>
+            <label htmlFor=${"fv-" + f.k} style=${{ fontWeight: 600, fontSize: ".9rem" }}><span aria-hidden="true">${f.e} </span>${f.l}</label>
+            <input id=${"fv-" + f.k} className="field" style=${{ marginTop: ".25rem" }} maxLength="80" placeholder=${"Example: " + f.ph} value=${fav[f.k] || ""}
+              onChange=${function (e) { const v = e.target.value; setFav(function (o) { return Object.assign({}, o, { [f.k]: v }); }); }} /></div>`;
+        })}</div></div>`;
+    })}
 
-    <h2 className="serif sec" style=${{ margin: "1.4rem 1rem .5rem" }}>Not so much</h2>
-    <div style=${{ padding: "0 1rem" }}><${Chips} options=${NOTS} picked=${nots} max=${14} tone="not" onToggle=${tog(nots, setNots)} onAdd=${function (v) { setNots(nots.concat([v])); }} /></div>
+    ${H("Finish my sentence", "Pick a few starters and complete them in your own words.")}
+    <div style=${{ padding: "0 1rem" }}>
+      ${openS.map(function (k) {
+        const s = SENTENCES.find(function (x) { return x[0] === k; });
+        if (!s) return null;
+        return html`<div key=${k} style=${{ marginBottom: ".8rem" }}>
+          <label htmlFor=${"sy-" + k} style=${{ fontWeight: 600, fontSize: ".9rem" }}>${s[1]}</label>
+          <textarea id=${"sy-" + k} className="field" rows="2" maxLength="160" style=${{ marginTop: ".25rem" }} value=${say[k] || ""}
+            onChange=${function (e) { const v = e.target.value; setSay(function (o) { return Object.assign({}, o, { [k]: v }); }); }}></textarea></div>`;
+      })}
+      ${freeS.length > 0 && html`<div className="muted" style=${{ fontSize: ".85rem", marginBottom: ".4rem" }}>${openS.length ? "Add another:" : "Tap one to start:"}</div>
+        <div className="chips">${freeS.map(function (s) { return html`<button type="button" key=${s[0]} className="chip" onClick=${function () { setOpenS(openS.concat([s[0]])); }}>${s[1]}</button>`; })}</div>`}
+    </div>
 
-    <h2 className="serif sec" style=${{ margin: "1.4rem 1rem .5rem" }}>This or that</h2>
+    ${H("Two truths and a lie", "Write three things about yourself. Two true, one made up. Family will try to guess the lie.")}
+    <div style=${{ padding: "0 1rem" }}>${[0, 1, 2].map(function (i) {
+      return html`<div key=${i} style=${{ marginBottom: ".7rem" }}>
+        <label htmlFor=${"tl-" + i} style=${{ fontWeight: 600, fontSize: ".9rem" }}>Statement ${i + 1}</label>
+        <input id=${"tl-" + i} className="field" style=${{ marginTop: ".25rem" }} maxLength="100" placeholder=${["I have been to 30 states", "I once caught a 40 pound catfish", "I can speak three languages"][i]} value=${tl.t[i]}
+          onChange=${function (e) { const v = e.target.value; setTl(function (o) { const t = o.t.slice(); t[i] = v; return { t: t, lie: o.lie }; }); }} />
+        <label className="lieopt"><input type="radio" name="lie" checked=${tl.lie === i} onChange=${function () { setTl(function (o) { return { t: o.t, lie: i }; }); }} /> This one is the lie</label></div>`;
+    })}
+      ${!tlOk && (tl.t.some(function (s) { return s.trim(); }) || tl.lie >= 0) && html`<div className="muted" style=${{ fontSize: ".85rem" }}>Fill in all three and mark the lie to save this one.</div>`}</div>
+
+    ${H("Things I love", "Tap all that fit, or add your own.")}
+    <div style=${{ padding: "0 1rem" }}><${Chips} options=${LOVES} picked=${loves} max=${20} tone="love" onToggle=${tog(loves, setLoves)} onAdd=${function (v) { setLoves(loves.concat([v])); }} /></div>
+
+    ${H("Not so much", "")}
+    <div style=${{ padding: "0 1rem" }}><${Chips} options=${NOTS} picked=${nots} max=${16} tone="not" onToggle=${tog(nots, setNots)} onAdd=${function (v) { setNots(nots.concat([v])); }} /></div>
+
+    ${H("This or that", "Tap your pick. Tap again to clear.")}
     <div style=${{ padding: "0 1rem" }}>${DUELS.map(function (d) {
       const pick = function (side) { setDuel(function (o) { const n = Object.assign({}, o); if (n[d[0]] === side) delete n[d[0]]; else n[d[0]] = side; return n; }); };
       return html`<div className="duel" key=${d[0]}>
@@ -1691,12 +1778,27 @@ function PrefsEditor() {
   </div>`;
 }
 
+function TruthsLie({ tl, name }) {
+  const [pick, setPick] = useState(-1);
+  return html`<div className="tlcard">
+    <div style=${{ fontWeight: 700 }}>🕵️ Two truths and a lie</div>
+    <div className="muted" style=${{ fontSize: ".85rem", margin: ".1rem 0 .6rem" }}>${pick < 0 ? "One of these is made up. Which one?" : pick === tl.lie ? "🎉 You spotted it!" : "😄 Fooled you! The lie is highlighted."}</div>
+    ${tl.t.map(function (s, i) {
+      const shown = pick >= 0;
+      const cls = "tlopt" + (shown && i === tl.lie ? " lie" : "") + (shown && i !== tl.lie ? " truth" : "") + (shown && pick === i ? " picked" : "");
+      return html`<button key=${i} type="button" className=${cls} disabled=${shown} onClick=${function () { setPick(i); }}>${s}${shown && i === tl.lie ? html`<small> (the lie)</small>` : shown ? html`<small> (true)</small>` : ""}</button>`;
+    })}
+    ${pick >= 0 && html`<button type="button" className="linkbtn" onClick=${function () { setPick(-1); }}>Hide the answer</button>`}
+  </div>`;
+}
+
 function KnowMe({ p, mine }) {
   const { me, push } = useApp();
   const x = getPrefs(p);
   const pr = prefsProgress(p);
   const favs = FAVS.filter(function (f) { return (x.fav[f.k] || "").trim(); });
   const duels = DUELS.filter(function (d) { return x.duel[d[0]]; });
+  const says = SENTENCES.filter(function (s) { return (x.say[s[0]] || "").trim(); });
   const nothing = pr.done === 0;
   if (nothing && !mine) return null;
 
@@ -1715,28 +1817,101 @@ function KnowMe({ p, mine }) {
   if (nothing && mine) {
     return html`<div className="knowcard">
       <div style=${{ fontWeight: 700, fontSize: "1.05rem" }}>Help your family get to know you</div>
-      <div className="muted" style=${{ margin: ".2rem 0 .8rem", fontSize: ".9rem" }}>Favorite color, food, movies, music, places. It takes two minutes and makes gift giving much easier.</div>
+      <div className="muted" style=${{ margin: ".2rem 0 .8rem", fontSize: ".9rem" }}>Favorites, finish-the-sentence, two truths and a lie, your life in emoji. Answer a few or a lot. It makes gift giving much easier.</div>
       <button className="btn" onClick=${function () { push({ name: "prefs" }); }}>Get started</button></div>`;
   }
+  const sec = function (t) { return html`<h3 className="serif sec" style=${{ margin: "1.1rem 0 .5rem", fontSize: "1.1rem" }}>${t}</h3>`; };
   return html`<div style=${{ padding: "0 1rem 1rem" }}>
     ${mine && html`<div className="knowcard" style=${{ margin: "0 0 1rem" }}>
-      <div className="row"><div className="grow"><div style=${{ fontWeight: 700 }}>${pr.done} of ${pr.total} answered</div>
-        <div className="meter" style=${{ marginTop: ".4rem" }}><i style=${{ width: Math.round(pr.done * 100 / pr.total) + "%" }}></i></div></div>
-        <button className="btn sm" onClick=${function () { push({ name: "prefs" }); }}>${pr.done < pr.total ? "Add more" : "Edit"}</button></div></div>`}
+      <div className="row"><div className="grow"><div style=${{ fontWeight: 700 }}>${pr.full ? "🎉 " : ""}${pr.done} answered</div>
+        <div className="meter" style=${{ marginTop: ".4rem" }}><i style=${{ width: Math.min(100, Math.round(pr.done * 100 / pr.total)) + "%" }}></i></div></div>
+        <button className="btn sm" onClick=${function () { push({ name: "prefs" }); }}>${pr.full ? "Edit" : "Add more"}</button></div></div>`}
+    ${x.emoji.length > 0 && html`<div className="emojirow" aria-label="Me in emoji">${x.emoji.map(function (em, i) { return html`<span key=${i}>${em}</span>`; })}</div>`}
     ${common.length > 0 && html`<div className="common"><b>In common with you</b>${common.map(function (c) { return html`<div key=${c}>${c}</div>`; })}</div>`}
-    ${favs.length > 0 && html`<h3 className="serif sec" style=${{ margin: ".6rem 0 .5rem", fontSize: "1.1rem" }}>Favorites</h3>
-      <div className="tiles">${favs.map(function (f) {
-        const v = x.fav[f.k];
-        return html`<div key=${f.k} className=${"tile" + (f.wide ? " wide" : "")}>
-          <div className="tl"><span aria-hidden="true">${f.e} </span>${f.l}</div>
-          <div className="tv">${f.k === "color" && isColor(v) && html`<i className="swatch" style=${{ background: v.trim().toLowerCase() }}></i>`}${v}</div></div>`;
-      })}</div>`}
-    ${x.loves.length > 0 && html`<h3 className="serif sec" style=${{ margin: "1.1rem 0 .5rem", fontSize: "1.1rem" }}>Loves</h3>
+    ${says.length > 0 && html`<div className="saycards">${says.map(function (s) { return html`<div key=${s[0]} className="saycard"><div className="sq">${s[1]}</div><div className="sa">${x.say[s[0]]}</div></div>`; })}</div>`}
+    ${x.tl && html`<${TruthsLie} tl=${x.tl} />`}
+    ${FAV_GROUPS.map(function (gname, gi) {
+      const list = favs.filter(function (f) { return f.g === gi; });
+      if (!list.length) return null;
+      return html`<div key=${gname}>${sec(gname)}
+        <div className="tiles">${list.map(function (f) {
+          const v = x.fav[f.k];
+          return html`<div key=${f.k} className=${"tile" + (f.wide ? " wide" : "")}>
+            <div className="tl"><span aria-hidden="true">${f.e} </span>${f.l}</div>
+            <div className="tv">${f.k === "color" && isColor(v) && html`<i className="swatch" style=${{ background: v.trim().toLowerCase() }}></i>`}${v}</div></div>`;
+        })}</div></div>`;
+    })}
+    ${x.loves.length > 0 && html`${sec("Loves")}
       <div className="chips">${x.loves.map(function (v) { return html`<span key=${v} className="chip love on">${v}</span>`; })}</div>`}
-    ${x.nots.length > 0 && html`<h3 className="serif sec" style=${{ margin: "1.1rem 0 .5rem", fontSize: "1.1rem" }}>Not so much</h3>
+    ${x.nots.length > 0 && html`${sec("Not so much")}
       <div className="chips">${x.nots.map(function (v) { return html`<span key=${v} className="chip not on">${v}</span>`; })}</div>`}
-    ${duels.length > 0 && html`<h3 className="serif sec" style=${{ margin: "1.1rem 0 .5rem", fontSize: "1.1rem" }}>This or that</h3>
+    ${duels.length > 0 && html`${sec("This or that")}
       <div className="chips">${duels.map(function (d) { return html`<span key=${d[0]} className="chip pick on">${x.duel[d[0]] === "a" ? d[1] : d[2]}<small> over ${x.duel[d[0]] === "a" ? d[2] : d[1]}</small></span>`; })}</div>`}
+  </div>`;
+}
+
+/* =====================  guess who (a family game built from everyone's answers)  ===================== */
+function shuffle(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = b[i]; b[i] = b[j]; b[j] = t; } return b; }
+function GuessWho() {
+  const { me, profiles, back } = useApp();
+  const [rows, setRows] = useState(null);
+  const [round, setRound] = useState(0);
+  const [qs, setQs] = useState([]);
+  const [chosen, setChosen] = useState(null);
+  const [score, setScore] = useState(0);
+  const ROUNDS = 6;
+  const build = useCallback(function (data) {
+    const facts = [];
+    data.forEach(function (r) {
+      if (r.id === me.id) return;
+      const x = getPrefs(r);
+      FAVS.forEach(function (f) { const v = (x.fav[f.k] || "").trim(); if (v && !f.wide) facts.push({ who: r.id, q: "Whose " + f.l.toLowerCase() + " is", a: "“" + v + "”?", e: f.e }); });
+      SENTENCES.forEach(function (s) { const v = (x.say[s[0]] || "").trim(); if (v) facts.push({ who: r.id, q: "Who finished “" + s[1] + "” with", a: "“" + v + "”?", e: "💬" }); });
+      DUELS.forEach(function (d) { if (x.duel[d[0]]) facts.push({ who: r.id, q: "Who would pick", a: (x.duel[d[0]] === "a" ? d[1] : d[2]) + " over " + (x.duel[d[0]] === "a" ? d[2] : d[1]) + "?", e: "⚖️" }); });
+      if (x.emoji.length >= 3) facts.push({ who: r.id, q: "Whose life in emoji is", a: x.emoji.join(" ") + " ?", e: "😀" });
+    });
+    const pool = shuffle(facts);
+    const seen = {}; const out = [];
+    pool.forEach(function (f) { if (out.length < ROUNDS && (seen[f.who] || 0) < 2) { seen[f.who] = (seen[f.who] || 0) + 1; out.push(f); } });
+    const people = data.map(function (r) { return r.id; }).filter(function (id) { return id !== me.id; });
+    return out.map(function (f) {
+      const others = shuffle(people.filter(function (id) { return id !== f.who; })).slice(0, 3);
+      return Object.assign({}, f, { opts: shuffle(others.concat([f.who])) });
+    });
+  }, [me.id]);
+  useEffect(function () {
+    sb.from("profiles").select("id,prefs").eq("status", "approved").then(function (r) { setRows(r.data || []); setQs(build(r.data || [])); });
+  }, [build]);
+  function again() { setRound(0); setScore(0); setChosen(null); setQs(build(rows || [])); }
+  const people = (rows || []).filter(function (r) { return r.id !== me.id; });
+  const withFacts = qs.length;
+  const q = qs[round];
+  const done = rows && withFacts > 0 && round >= withFacts;
+  return html`<div>
+    <${TopBar} title="Guess who?" back=${back} />
+    ${!rows && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
+    ${rows && (withFacts < 1 || people.length < 2) && html`<div className="center" style=${{ padding: "3rem 1.5rem" }}>
+      <div style=${{ fontSize: "3rem" }}>🕵️</div>
+      <div className="serif" style=${{ fontSize: "1.3rem", color: "var(--green)", margin: ".4rem 0" }}>Not enough answers yet</div>
+      <div className="muted">Guess who needs at least two other family members to have filled in Get to know me. Ask them to open Me, then Get to know me.</div></div>`}
+    ${q && !done && html`<div style=${{ padding: "1rem" }}>
+      <div className="muted" style=${{ fontWeight: 600 }}>Question ${round + 1} of ${withFacts} · Score ${score}</div>
+      <div className="gwq"><span aria-hidden="true" style=${{ fontSize: "1.6rem" }}>${q.e}</span><div>${q.q} <b>${q.a}</b></div></div>
+      <div className="gwopts">${q.opts.map(function (id) {
+        const right = chosen && id === q.who;
+        const wrong = chosen === id && id !== q.who;
+        return html`<button key=${id} disabled=${!!chosen} className=${"gwopt" + (right ? " right" : "") + (wrong ? " wrong" : "")} onClick=${function () { setChosen(id); if (id === q.who) setScore(score + 1); }}>
+          <${Avatar} id=${id} name=${nm(profiles[id])} size=${52} /><span>${nm(profiles[id])}</span></button>`;
+      })}</div>
+      ${chosen && html`<div className="center" style=${{ marginTop: "1rem" }}>
+        <div style=${{ fontWeight: 700, marginBottom: ".6rem" }}>${chosen === q.who ? "🎉 Yes! That was " + nm(profiles[q.who]) + "." : "It was " + nm(profiles[q.who]) + "."}</div>
+        <button className="btn" onClick=${function () { setChosen(null); setRound(round + 1); }}>${round + 1 >= withFacts ? "See my score" : "Next"}</button></div>`}
+    </div>`}
+    ${done && html`<div className="center" style=${{ padding: "2.5rem 1.5rem" }}>
+      <div style=${{ fontSize: "3rem" }}>${score >= withFacts - 1 ? "🏆" : score >= withFacts / 2 ? "👏" : "🙂"}</div>
+      <div className="serif" style=${{ fontSize: "1.6rem", color: "var(--green)" }}>You got ${score} of ${withFacts}</div>
+      <div className="muted" style=${{ margin: ".4rem 0 1.2rem" }}>${score >= withFacts - 1 ? "You really know your family." : "Visit their profiles to learn more, then play again."}</div>
+      <button className="btn" onClick=${again}>Play again</button></div>`}
   </div>`;
 }
 
@@ -2761,6 +2936,10 @@ function People() {
         <div className="grow"><div style=${{ fontWeight: 600 }}>Birthdays and anniversaries</div><div className="muted" style=${{ fontSize: ".8rem" }}>Never miss a special day, send a wish</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>
+      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "guesswho" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>🕵️ Guess who? A family game</div><div className="muted" style=${{ fontSize: ".8rem" }}>Match favorites and answers to the right person</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
       ${active.map(function (m) { return row(m, false); })}
       ${quiet.length > 0 && html`<div className="hdr">Quiet lately (only you can see this)</div>`}
       ${quiet.map(function (m) { return row(m, true); })}
@@ -3099,7 +3278,7 @@ function Settings() {
         <${MonthDay} idp="s-bd" m=${bm} d=${bd} onM=${setBm} onD=${setBd} />
       </div>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "prefs" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>Favorites, loves and this-or-that picks</div></div>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>Favorites, finish-the-sentence, two truths and a lie, emoji</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>
       <div style=${{ padding: "1rem", borderTop: "1px solid var(--soft)" }}>
@@ -3760,6 +3939,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "story": return html`<${StoryViewer} authorId=${route.authorId} />`;
       case "settings": return html`<${Settings} />`;
       case "prefs": return html`<${PrefsEditor} />`;
+      case "guesswho": return html`<${GuessWho} />`;
       case "organizer": return html`<${Organizer} />`;
       case "activity": return html`<${Activity} />`;
       default: return html`<${Home} />`;
@@ -3768,7 +3948,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
 
   const root = stack[0];
   const top = stack[stack.length - 1];
-  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "organizer", "groups", "prompt", "news", "album", "celebrations", "events", "event"].indexOf(top.name) >= 0;
+  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "guesswho", "organizer", "groups", "prompt", "news", "album", "celebrations", "events", "event"].indexOf(top.name) >= 0;
   const topKey = stack.length + ":" + top.name + (top.userId || top.postId || top.id || top.authorId || "");
 
   const tabs = [
