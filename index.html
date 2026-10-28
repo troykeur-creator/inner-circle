@@ -232,6 +232,36 @@
   .gwopt.right { border-color: #2ea36f; background: #e4f7ef; }
   .gwopt.wrong { border-color: var(--coral); background: #ffe1d8; }
   .gwopt:disabled { opacity: 1; }
+  .pbanner { height: 9rem; background-size: cover; background-position: center; background-color: var(--tint); }
+  .prevbox { border: 1px solid var(--line); border-radius: 1rem; margin: 1rem; overflow: hidden; background-color: var(--bg); }
+  .prevbox .pbanner { height: 5.5rem; }
+  .themed.prevbox { min-height: 0; }
+  .themed { min-height: 100dvh; }
+  .themed .sec { color: var(--pt); font-family: var(--pf); }
+  .themed .btn:not(.grey):not(.danger) { background: var(--pt); }
+  .themed .tile { border-left: 4px solid var(--pt1); }
+  .themed .chip.love.on { border-color: var(--pt1); color: var(--pt); }
+  .themed .meter i { background: var(--pt); }
+  .themed .stat b { font-family: var(--pf); }
+  .themed .saycard { border-left-color: var(--pt1); }
+  .themed .saycard .sa { font-family: var(--pf); }
+  .themed .knowcard { background: linear-gradient(135deg, rgba(255,255,255,.9), rgba(255,255,255,.7)); }
+  .songpill { display: inline-block; margin-top: .4rem; padding: .25rem .8rem; border-radius: 2rem; background: #fff; border: 1px solid var(--pt1); font-size: .85rem; font-weight: 600; }
+  .songpill a { color: var(--pt); }
+  .top8 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
+  .t8 { position: relative; display: flex; flex-direction: column; align-items: center; gap: .2rem; background: #fff; border: 1px solid var(--line); border-radius: .9rem; padding: .5rem .2rem; cursor: pointer; min-width: 0; min-height: 2.75rem; }
+  .themed .t8 { border-color: var(--pt1); }
+  .t8 .rk { position: absolute; top: .15rem; left: .3rem; font-size: .7rem; font-weight: 800; color: var(--muted); }
+  .t8n { font-size: .75rem; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .themegrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; padding: 0 1rem; }
+  .themecard { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: .5rem; min-height: 2.75rem; border-radius: .9rem; border: 2px solid var(--line); background: #fff; cursor: pointer; font-size: .8rem; }
+  .themecard.on { border-color: var(--green); background: var(--tint); }
+  .themecard .sw { width: 100%; height: 2.4rem; border-radius: .6rem; }
+  .colorpick { display: flex; flex-direction: column; gap: .3rem; font-weight: 600; font-size: .9rem; }
+  .colorpick input { width: 5.5rem; height: 2.75rem; padding: 0; border: 1px solid var(--line); border-radius: .6rem; background: #fff; }
+  .toprow { display: flex; align-items: center; gap: .5rem; min-height: 3rem; border-bottom: 1px solid var(--soft); }
+  .toprow .rank { width: 1.4rem; text-align: center; color: var(--muted); }
+  .toprow .ibtn:disabled { opacity: .3; }
   .common { padding: .8rem 1rem; border-radius: 1rem; background: #ffe6dd; color: #7a2a10; font-size: .9rem; margin-bottom: .4rem; }
   .common b { display: block; margin-bottom: .2rem; }
   .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }

@@ -1915,6 +1915,197 @@ function GuessWho() {
   </div>`;
 }
 
+/* =====================  profile themes (cover photo, colors, pattern, font, song, Top 8)  ===================== */
+const THEMES = [
+  { id: "ocean", n: "Ocean", c1: "#0a8fb5", c2: "#4a3fd8", bg: "dots", font: "classic" },
+  { id: "sunset", n: "Sunset", c1: "#e4572e", c2: "#c2185b", bg: "stripes", font: "classic" },
+  { id: "berry", n: "Berry", c1: "#8e24aa", c2: "#ec407a", bg: "confetti", font: "fun" },
+  { id: "forest", n: "Forest", c1: "#2f6f4f", c2: "#8bc34a", bg: "grid", font: "classic" },
+  { id: "midnight", n: "Midnight", c1: "#283593", c2: "#7c4dff", bg: "dots", font: "bold" },
+  { id: "retro", n: "Retro 2005", c1: "#d81b60", c2: "#ffd600", bg: "checks", font: "fun" },
+  { id: "camo", n: "Camo", c1: "#556b2f", c2: "#a1887f", bg: "stripes", font: "bold" },
+  { id: "pastel", n: "Pastel", c1: "#7e57c2", c2: "#f48fb1", bg: "confetti", font: "fun" },
+  { id: "maize", n: "Maize and Blue", c1: "#00274c", c2: "#ffcb05", bg: "stripes", font: "bold" },
+  { id: "peach", n: "Peach", c1: "#e07a5f", c2: "#f2cc8f", bg: "dots", font: "classic" },
+  { id: "slate", n: "Slate", c1: "#455a64", c2: "#90a4ae", bg: "grid", font: "typewriter" },
+  { id: "neon", n: "Neon Night", c1: "#6a1b9a", c2: "#00bcd4", bg: "checks", font: "typewriter" }
+];
+const PATTERNS = [["none", "Plain"], ["dots", "Dots"], ["stripes", "Stripes"], ["grid", "Grid"], ["confetti", "Confetti"], ["checks", "Checks"]];
+const FONTS = [
+  ["classic", "Classic", 'Georgia, "Times New Roman", serif'],
+  ["fun", "Fun", '"Chalkboard SE", "Marker Felt", "Comic Sans MS", "Trebuchet MS", cursive'],
+  ["typewriter", "Typewriter", '"Courier New", Courier, monospace'],
+  ["bold", "Bold", '"Arial Black", "Helvetica Neue", Impact, sans-serif']
+];
+const HEXRE = /^#[0-9a-fA-F]{6}$/;
+function hexRgb(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+function rgbHex(r) { return "#" + r.map(function (v) { return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"); }).join(""); }
+function lumOf(h) { const c = hexRgb(h).map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+function contrastW(h) { return 1.05 / (lumOf(h) + 0.05); }   /* contrast of a color against white */
+function readableColor(h) {   /* darkens a color until white text on it, and it on a light page, are easy to read */
+  let c = HEXRE.test(h) ? h : "#0879a0";
+  for (let i = 0; i < 30 && contrastW(c) < 4.6; i++) c = rgbHex(hexRgb(c).map(function (v) { return v * 0.9; }));
+  return c;
+}
+function rgbaOf(h, a) { const c = hexRgb(h); return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")"; }
+function themeOf(p) {   /* validates stored values; returns null when a person has not picked a theme */
+  const t = p && p.theme;
+  if (!t || typeof t !== "object" || !HEXRE.test(t.c1 || "") || !HEXRE.test(t.c2 || "")) return null;
+  const bg = PATTERNS.some(function (x) { return x[0] === t.bg; }) ? t.bg : "none";
+  const font = FONTS.some(function (x) { return x[0] === t.font; }) ? t.font : "classic";
+  const s = t.song && typeof t.song === "object" ? { title: String(t.song.title || "").slice(0, 60), url: /^https?:\/\//i.test(String(t.song.url || "")) ? String(t.song.url).slice(0, 300) : "" } : null;
+  return { t: String(t.t || "custom").slice(0, 20), c1: t.c1, c2: t.c2, bg: bg, font: font, song: s && s.title ? s : null };
+}
+function patternStyle(bg, c1, c2) {
+  const a = function (v) { return rgbaOf(c1, v); };
+  if (bg === "dots") return { backgroundImage: "radial-gradient(" + a(.16) + " 2px, transparent 2.5px)", backgroundSize: "18px 18px" };
+  if (bg === "stripes") return { backgroundImage: "repeating-linear-gradient(45deg, " + a(.07) + " 0 10px, transparent 10px 20px)" };
+  if (bg === "grid") return { backgroundImage: "linear-gradient(" + a(.09) + " 1px, transparent 1px), linear-gradient(90deg, " + a(.09) + " 1px, transparent 1px)", backgroundSize: "22px 22px" };
+  if (bg === "confetti") return { backgroundImage: "radial-gradient(" + a(.2) + " 3px, transparent 3.5px), radial-gradient(" + rgbaOf(c2, .25) + " 2.5px, transparent 3px), radial-gradient(" + a(.14) + " 2px, transparent 2.5px)", backgroundSize: "64px 64px, 48px 48px, 36px 36px", backgroundPosition: "0 0, 20px 30px, 8px 14px" };
+  if (bg === "checks") return { backgroundImage: "conic-gradient(" + a(.07) + " 25%, transparent 0 50%, " + a(.07) + " 0 75%, transparent 0)", backgroundSize: "28px 28px" };
+  return {};
+}
+function themeStyle(th) {
+  if (!th) return undefined;
+  const f = FONTS.find(function (x) { return x[0] === th.font; });
+  return Object.assign({ "--pt": readableColor(th.c1), "--pt1": th.c1, "--pt2": th.c2, "--pf": f ? f[2] : FONTS[0][2] }, patternStyle(th.bg, th.c1, th.c2));
+}
+function validUrl(u) { return /^https?:\/\/[^\s]+$/i.test(u || ""); }
+
+function ThemeEditor() {
+  const { me, profiles, toast, back, reloadMe, reloadProfiles } = useApp();
+  const cur = themeOf(me) || { t: "ocean", c1: "#0a8fb5", c2: "#4a3fd8", bg: "dots", font: "classic", song: null };
+  const [th, setTh] = useState({ t: cur.t, c1: cur.c1, c2: cur.c2, bg: cur.bg, font: cur.font });
+  const [songTitle, setSongTitle] = useState(cur.song ? cur.song.title : "");
+  const [songUrl, setSongUrl] = useState(cur.song ? cur.song.url : "");
+  const [on, setOn] = useState(!!themeOf(me));
+  const [top, setTop] = useState((me.top_friends || []).filter(function (id) { return profiles[id] && profiles[id].status === "approved"; }));
+  const [addOpen, setAddOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const fileRef = useRef(null);
+  const coverUrls = useUrls(me.cover_path ? [me.cover_path] : []);
+  const cover = me.cover_path ? coverUrls(me.cover_path) : null;
+  const preview = on ? Object.assign({ song: null }, th) : null;
+  const pst = themeStyle(preview);
+  const set = function (o) { setOn(true); setTh(function (t) { return Object.assign({}, t, o); }); };
+
+  async function pickCover(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (isGif(file)) { toast("Please choose a regular photo for the cover."); return; }
+    setCoverBusy(true);
+    let path = null;
+    try {
+      const blob = await shrink(file, 1200);
+      path = me.id + "/cover-" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now()) + ".jpg";
+      const up = await sb.storage.from("photos").upload(path, blob, { contentType: "image/jpeg" });
+      if (up.error) throw up.error;
+      const r = await sb.from("profiles").update({ cover_path: path }).eq("id", me.id);
+      if (r.error) throw r.error;
+      if (me.cover_path) sb.storage.from("photos").remove([me.cover_path]);
+      await reloadMe(); reloadProfiles();
+      toast("Cover photo updated");
+    } catch (err) {
+      if (path) sb.storage.from("photos").remove([path]);
+      toast((err && err.message) || "Could not update the cover photo.");
+    }
+    setCoverBusy(false);
+  }
+  async function removeCover() {
+    if (!me.cover_path) return;
+    setCoverBusy(true);
+    const r = await sb.from("profiles").update({ cover_path: null }).eq("id", me.id);
+    if (!r.error) { sb.storage.from("photos").remove([me.cover_path]); await reloadMe(); reloadProfiles(); toast("Cover photo removed"); }
+    else toast(r.error.message);
+    setCoverBusy(false);
+  }
+  function move(i, d) { setTop(function (l) { const n = l.slice(); const j = i + d; if (j < 0 || j >= n.length) return l; const t = n[i]; n[i] = n[j]; n[j] = t; return n; }); }
+  async function save() {
+    if (songUrl.trim() && !validUrl(songUrl.trim())) { toast("The song link should start with https://"); return; }
+    setBusy(true);
+    const theme = on ? Object.assign({}, th, songTitle.trim() ? { song: { title: songTitle.trim().slice(0, 60), url: songUrl.trim().slice(0, 300) } } : {}) : {};
+    const r = await sb.from("profiles").update({ theme: theme, top_friends: top }).eq("id", me.id);
+    setBusy(false);
+    if (r.error) { toast(/theme|top_friends|column/i.test(r.error.message) ? "The database needs its latest update first (run schema.sql in Supabase)." : r.error.message); return; }
+    toast("Saved. Take a look at your page.");
+    await reloadMe(); reloadProfiles();
+    back();
+  }
+  const rest = Object.keys(profiles).map(function (k) { return profiles[k]; }).filter(function (m) { return m.status === "approved" && m.id !== me.id && top.indexOf(m.id) < 0; }).sort(function (a, b) { return nm(a).localeCompare(nm(b)); });
+  const H = function (t, sub) { return html`<div style=${{ margin: "1.4rem 1rem .5rem" }}><h2 className="serif sec" style=${{ margin: 0 }}>${t}</h2>${sub && html`<div className="muted" style=${{ fontSize: ".85rem" }}>${sub}</div>`}</div>`; };
+  return html`<div>
+    <${TopBar} title="Customize my page" back=${back} right=${html`<button className="tbtn" onClick=${save} disabled=${busy}>${busy ? "..." : "Save"}</button>`} />
+    <div className=${"themed prevbox"} style=${pst}>
+      <div className="pbanner" style=${cover ? { backgroundImage: "url(" + cover + ")" } : { backgroundImage: "linear-gradient(135deg, " + (preview ? preview.c1 : "#0fc0b0") + ", " + (preview ? preview.c2 : "#4a3fd8") + ")" }}></div>
+      <div style=${{ padding: ".4rem 1rem 1rem", marginTop: "-2rem" }}>
+        <div className="ring" style=${{ width: "4rem", height: "4rem", margin: 0, borderColor: preview ? preview.c1 : "var(--amber)" }}><${Avatar} id=${me.id} name=${me.display_name} size=${52} /></div>
+        <div style=${{ fontWeight: 700, fontSize: "1.2rem", marginTop: ".3rem", fontFamily: preview ? "var(--pf)" : undefined }}>${nm(me)}</div>
+        <h3 className="sec" style=${{ margin: ".4rem 0", fontSize: "1.05rem" }}>Favorites</h3>
+        <button type="button" className="btn sm" tabIndex="-1">Say hello</button>
+      </div>
+    </div>
+
+    ${H("Cover photo", "A wide picture across the top of your page.")}
+    <div className="row" style=${{ padding: "0 1rem", flexWrap: "wrap" }}>
+      <input ref=${fileRef} type="file" accept="image/*" onChange=${pickCover} style=${{ display: "none" }} />
+      <button className="btn" disabled=${coverBusy} onClick=${function () { fileRef.current.click(); }}>${coverBusy ? "Working..." : me.cover_path ? "Change cover photo" : "Add a cover photo"}</button>
+      ${me.cover_path && html`<button className="btn grey" disabled=${coverBusy} onClick=${removeCover}>Remove</button>`}
+    </div>
+
+    ${H("Pick a look", "Tap one to start, then change anything you like below.")}
+    <div className="themegrid">${THEMES.map(function (t) {
+      const sel = on && th.t === t.id && th.c1 === t.c1 && th.c2 === t.c2;
+      return html`<button key=${t.id} type="button" aria-pressed=${sel} className=${"themecard" + (sel ? " on" : "")} onClick=${function () { setOn(true); setTh({ t: t.id, c1: t.c1, c2: t.c2, bg: t.bg, font: t.font }); }}>
+        <span className="sw" style=${{ background: "linear-gradient(135deg, " + t.c1 + ", " + t.c2 + ")" }}></span><b>${t.n}</b></button>`;
+    })}</div>
+    ${on && html`<div style=${{ padding: ".6rem 1rem 0" }}><button type="button" className="linkbtn" onClick=${function () { setOn(false); }}>Use the standard look instead</button></div>`}
+
+    ${H("Your colors", "Text colors are adjusted automatically so everything stays easy to read.")}
+    <div className="row" style=${{ padding: "0 1rem", gap: "1.2rem", flexWrap: "wrap" }}>
+      <label className="colorpick">Main color<input type="color" value=${th.c1} onChange=${function (e) { set({ t: "custom", c1: e.target.value }); }} /></label>
+      <label className="colorpick">Second color<input type="color" value=${th.c2} onChange=${function (e) { set({ t: "custom", c2: e.target.value }); }} /></label>
+    </div>
+
+    ${H("Background")}
+    <div className="chips" style=${{ padding: "0 1rem" }}>${PATTERNS.map(function (x) {
+      return html`<button key=${x[0]} type="button" aria-pressed=${on && th.bg === x[0]} className=${"chip" + (on && th.bg === x[0] ? " love on" : "")} onClick=${function () { set({ bg: x[0] }); }}>${x[1]}</button>`;
+    })}</div>
+
+    ${H("Heading style")}
+    <div className="chips" style=${{ padding: "0 1rem" }}>${FONTS.map(function (x) {
+      return html`<button key=${x[0]} type="button" aria-pressed=${on && th.font === x[0]} className=${"chip" + (on && th.font === x[0] ? " love on" : "")} style=${{ fontFamily: x[2] }} onClick=${function () { set({ font: x[0] }); }}>${x[1]}</button>`;
+    })}</div>
+
+    ${H("Profile song", "Shown on your page. If you add a link, tapping it opens the song in a new tab.")}
+    <div style=${{ padding: "0 1rem" }}>
+      <label className="sr" htmlFor="song-t">Song title and artist</label>
+      <input id="song-t" className="field" maxLength="60" placeholder="Song and artist" value=${songTitle} onChange=${function (e) { setSongTitle(e.target.value); }} />
+      <label className="sr" htmlFor="song-u">Link (optional)</label>
+      <input id="song-u" className="field" style=${{ marginTop: ".5rem" }} maxLength="300" inputMode="url" placeholder="Link (optional), starts with https://" value=${songUrl} onChange=${function (e) { setSongUrl(e.target.value); }} />
+      ${!on && songTitle && html`<div className="muted" style=${{ fontSize: ".85rem", marginTop: ".4rem" }}>Pick a look above for your song to show.</div>`}
+    </div>
+
+    ${H("My Top 8", "Put your favorite family members in order. Everyone in the family can see this list, so choose kindly.")}
+    <div style=${{ padding: "0 1rem" }}>
+      ${top.length === 0 && html`<div className="muted">Nobody yet.</div>`}
+      ${top.map(function (id, i) {
+        return html`<div key=${id} className="toprow"><b className="rank">${i + 1}</b><${Avatar} id=${id} name=${nm(profiles[id])} size=${40} /><span className="grow one">${nm(profiles[id])}</span>
+          <button type="button" className="ibtn" aria-label=${"Move " + nm(profiles[id]) + " up"} disabled=${i === 0} onClick=${function () { move(i, -1); }}>↑</button>
+          <button type="button" className="ibtn" aria-label=${"Move " + nm(profiles[id]) + " down"} disabled=${i === top.length - 1} onClick=${function () { move(i, 1); }}>↓</button>
+          <button type="button" className="ibtn" aria-label=${"Remove " + nm(profiles[id])} onClick=${function () { setTop(top.filter(function (x) { return x !== id; })); }}>✕</button></div>`;
+      })}
+      ${top.length < 8 && rest.length > 0 && html`<button type="button" className="btn grey" style=${{ marginTop: ".5rem" }} onClick=${function () { setAddOpen(true); }}>Add a family member</button>`}
+    </div>
+    ${addOpen && html`<${Sheet} title="Add to your Top 8" onClose=${function () { setAddOpen(false); }}>
+      ${rest.map(function (m) { return html`<button key=${m.id} className="sheetbtn row" onClick=${function () { setTop(top.concat([m.id])); setAddOpen(false); }}><${Avatar} id=${m.id} name=${nm(m)} size=${36} /><span>${nm(m)}</span></button>`; })}
+    </${Sheet}>`}
+
+    <div style=${{ padding: "1.4rem 1rem 2rem" }}><button className="btn block" style=${{ height: "3.1rem" }} onClick=${save} disabled=${busy}>Save</button></div>
+  </div>`;
+}
+
 /* =====================  profile  ===================== */
 function Profile({ userId, root }) {
   const { me, profiles, push, back, tick, easy, setEasy, openHello } = useApp();
@@ -1930,6 +2121,11 @@ function Profile({ userId, root }) {
   }, [userId, tick]);
   const p = Object.assign({}, profiles[userId] || {}, { prefs: mine ? me.prefs : theirPrefs });
   const urls = useUrls((posts || []).map(function (x) { return x.image_path; }));
+  const th = themeOf(p);
+  const coverUrls = useUrls(p.cover_path ? [p.cover_path] : []);
+  const coverU = p.cover_path ? coverUrls(p.cover_path) : null;
+  const banner = !!(th || p.cover_path);
+  const top8 = (p.top_friends || []).filter(function (id) { return profiles[id] && profiles[id].status === "approved"; }).slice(0, 8);
 
   const load = useCallback(async function () {
     const r = await sb.from("posts").select("id,caption,image_path,extra_paths,video_path,created_at").eq("author_id", userId).order("created_at", { ascending: false }).limit(90);
@@ -1945,27 +2141,36 @@ function Profile({ userId, root }) {
     <button className="ibtn" aria-label="Settings" onClick=${function () { push({ name: "settings" }); }}><${Icon} n="gear" s=${24} /></button></div>` : null;
   const n = posts ? posts.length : 0;
   return html`
-    <div>
+    <div className=${th ? "themed" : ""} style=${themeStyle(th)}>
       ${root
         ? html`<div className="top"><div className="brand" style=${{ fontSize: "1.3rem" }}>${nm(p)}</div>${gear}</div>`
         : html`<${TopBar} title=${nm(p)} back=${back} />`}
-      <div className="row" style=${{ padding: ".6rem 1.1rem", gap: "1.4rem" }}>
-        <div className="ring" style=${{ width: "5.5rem", height: "5.5rem", flex: "none", margin: 0, borderColor: "var(--amber)" }}><${Avatar} id=${userId} name=${p.display_name} size=${72} /></div>
-        <div className="row" style=${{ flex: 1, justifyContent: "space-around" }}>
+      ${banner && html`<div className="pbanner" style=${coverU ? { backgroundImage: "url(" + coverU + ")" } : th ? { backgroundImage: "linear-gradient(135deg, " + th.c1 + ", " + th.c2 + ")" } : { backgroundImage: "var(--grad)" }}></div>`}
+      <div className="row" style=${{ padding: ".6rem 1.1rem", gap: "1.4rem", marginTop: banner ? "-2.9rem" : 0, alignItems: banner ? "flex-end" : "center" }}>
+        <div className="ring" style=${{ width: "5.5rem", height: "5.5rem", flex: "none", margin: 0, borderColor: th ? th.c1 : "var(--amber)", background: "var(--bg)" }}><${Avatar} id=${userId} name=${p.display_name} size=${72} /></div>
+        <div className="row" style=${{ flex: 1, justifyContent: "space-around", paddingBottom: banner ? ".1rem" : 0 }}>
           <div className="stat"><b>${posts ? n : "-"}</b><span>${n === 1 ? "moment" : "moments"}</span></div>
           <div className="stat"><b>${since}</b><span>here since</span></div>
         </div>
       </div>
       <div style=${{ padding: "0 1.1rem .8rem", fontSize: ".9rem" }}>
-        <div style=${{ fontWeight: 600 }}>${nm(p)}</div>
+        <div style=${{ fontWeight: 600, fontSize: th ? "1.15rem" : undefined, fontFamily: th ? "var(--pf)" : undefined }}>${nm(p)}</div>
         ${p.relation && html`<div className="muted">${p.relation}</div>`}
         ${p.bio ? html`<div style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><${Linkify} text=${p.bio} /></div>` : mine ? html`<div className="muted">Add a few words about yourself in Edit profile.</div>` : null}
+        ${th && th.song && html`<div className="songpill">${"🎵 "}${th.song.url ? html`<a className="lnk" href=${th.song.url} target="_blank" rel="noopener noreferrer nofollow">${th.song.title}</a>` : th.song.title}</div>`}
       </div>
       <div className="row" style=${{ padding: "0 1.1rem 1rem" }}>
         ${mine
-          ? html`<button className="btn grey grow" onClick=${function () { push({ name: "settings" }); }}>Edit profile</button>`
+          ? html`<button className="btn grey grow" onClick=${function () { push({ name: "settings" }); }}>Edit profile</button>
+            <button className="btn grow" onClick=${function () { push({ name: "theme" }); }}>🎨 Customize</button>`
           : html`<button className="btn grow" onClick=${function () { openHello(userId); }}>Say hello</button>`}
       </div>
+      ${top8.length > 0 && html`<div style=${{ padding: "0 1.1rem 1rem" }}>
+        <h3 className="serif sec" style=${{ margin: "0 0 .5rem", fontSize: "1.1rem" }}>${mine ? "My Top 8" : nm(p).split(" ")[0] + "'s Top 8"}</h3>
+        <div className="top8">${top8.map(function (id, i) {
+          return html`<button key=${id} className="t8" onClick=${function () { push({ name: "profile", userId: id }); }} aria-label=${"Number " + (i + 1) + ", " + nm(profiles[id])}>
+            <span className="rk">${i + 1}</span><${Avatar} id=${id} name=${nm(profiles[id])} size=${58} /><span className="t8n">${nm(profiles[id]).split(" ")[0]}</span></button>`;
+        })}</div></div>`}
       <${KnowMe} p=${p} mine=${mine} />
       <div className="tabline"><div className="on"><${Icon} n="grid" s=${24} sw=${2} /></div></div>
       ${err && !posts && html`<${Failed} what="their moments" onRetry=${load} />`}
@@ -3798,7 +4003,8 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
   const savedScroll = useRef(null);
 
   const loadProfiles = useCallback(async function () {
-    const r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day");
+    let r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day,cover_path,theme,top_friends");
+    if (r.error) r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day");   /* older database: themes not set up yet */
     const m = {};
     (r.data || []).forEach(function (x) { m[x.id] = x; });
     setProfiles(m);
@@ -3940,6 +4146,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "settings": return html`<${Settings} />`;
       case "prefs": return html`<${PrefsEditor} />`;
       case "guesswho": return html`<${GuessWho} />`;
+      case "theme": return html`<${ThemeEditor} />`;
       case "organizer": return html`<${Organizer} />`;
       case "activity": return html`<${Activity} />`;
       default: return html`<${Home} />`;
