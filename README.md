@@ -9,7 +9,7 @@ Everything is approved by an organizer. Nobody sees anything until they are welc
 ## What it does
 
 **Sharing**
-- Photos (up to 10) and a video in the same post, voice memos, GIFs, and an emoji picker
+- Photos (up to 10) and a video in the same post, voice memos, GIFs (upload, or search with an optional free GIPHY key), and an emoji picker
 - "Your day" stories, short notes, comments, hearts, albums and an On this day memories page
 - Share with everyone or just a group, and hide a post from specific people
 - A weekly Friday family question, plus organizer-posted prompts and family news
@@ -24,12 +24,13 @@ Everything is approved by an organizer. Nobody sees anything until they are welc
 - Events with RSVPs, bring-lists, a photo wall for a TV, and messages
 - Birthdays and anniversaries, with well wishes
 - Video chat rooms for up to 4 people, phone to phone, with an "X is calling" notification
+- Family chat (Everyone, plus a room for each group), polls, and time capsules: letters that stay sealed until a day you choose
 
 **Joining and running it**
 - One-time invite links that expire in 7 days
 - Members can invite someone, and the organizer still approves every person
-- Organizer tools: approve or remove people, family code, storage meter, backup, and switches for member invites and the Friday question
-- Phone notifications (Web Push), installable to the home screen on iPhone and Android
+- Organizer tools: approve or remove people, make a second organizer, family code, storage meter, backup, and switches for member invites and the Friday question
+- Phone notifications (Web Push) with a switch for each kind and quiet hours, installable to the home screen on iPhone and Android
 
 ## How it is built
 
@@ -42,6 +43,7 @@ No build step and no server of its own. The app is a handful of static files ser
 | Sign-in | Phone one-time codes (Twilio Verify through Supabase Auth) |
 | Photos, video, audio | Supabase Storage, private bucket with signed links |
 | Notifications | Supabase Edge Function `send-push` plus Web Push |
+| Chat | Supabase table, checked every few seconds while open |
 | Video chat | WebRTC, with Supabase Realtime private channels for signaling |
 | Hosting | GitHub Pages |
 
@@ -51,7 +53,7 @@ No build step and no server of its own. The app is a handful of static files ser
 |---|---|
 | `index.html` | Page shell and all styles |
 | `app.js` | The whole app |
-| `config.js` | Your two public Supabase values (URL and anon key) |
+| `config.js` | Your two public Supabase values (URL and anon key), plus an optional `GIPHY_KEY` for GIF search |
 | `sw.js` | Service worker (offline shell, notification taps). Bump the cache number on every release |
 | `manifest.json`, `icon-*.png`, `icon.svg`, `apple-touch-icon.png` | Home-screen install |
 | `schema.sql` | The entire database: tables, privacy rules, triggers. Safe to run again |
@@ -90,6 +92,9 @@ Full click-by-click steps are in [`SETUP.md`](SETUP.md). In short:
 - On iPhone, notifications only work from the installed home-screen app, and video chat needs iOS 16 or newer.
 - A phone that locks its screen will drop out of a video call.
 - The free Supabase plan includes 1 GB of storage. The organizer screen shows usage.
+
+## Help inside the app
+Settings has a "Help and privacy" page that explains who can see what and how to fix common problems. Keep it accurate if you change how the app stores or shares data.
 
 ## Releasing an update
 

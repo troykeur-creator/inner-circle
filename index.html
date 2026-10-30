@@ -340,6 +340,16 @@
   .gifcell { position: relative; padding: 0; border: 0; border-radius: .5rem; overflow: hidden; background: var(--soft); aspect-ratio: 1; cursor: pointer; }
   .gifcell img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .gifcell.busy { opacity: .5; }
+  .orgtag { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: #fff; background: var(--green); padding: .05rem .45rem; border-radius: 1rem; vertical-align: middle; }
+  .helpsec { border-bottom: 1px solid var(--soft); }
+  .helpsec summary { padding: .9rem .2rem; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+  .helpsec summary::-webkit-details-marker { display: none; }
+  .helpsec summary::after { content: "+"; font-size: 1.3rem; color: var(--green); }
+  .helpsec[open] summary::after { content: "–"; }
+  .helpbody { padding: 0 .2rem 1rem; font-size: .95rem; line-height: 1.5; }
+  .helpbody p { margin: .5rem 0; }
+  .helpbody ul { margin: .4rem 0; padding-left: 1.2rem; }
+  .helpbody li { margin: .3rem 0; }
   .callbanner { background: linear-gradient(135deg, #d9f7e6, #dff3fb); }
   .callwrap { position: fixed; inset: 0; z-index: 55; background: #0b1d26; color: #fff; display: flex; flex-direction: column; }
   .callgrid { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; grid-template-columns: 1fr; grid-auto-rows: 1fr; position: relative; }
@@ -400,6 +410,29 @@
   .qr button { width: 3.2rem; height: 3.2rem; border-radius: 50%; border: 1px solid var(--line); background: #fff; font-size: 1.5rem; cursor: pointer; }
   .qr.small { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; padding: .1rem 1rem .5rem; }
   .qr.small button { width: 2.75rem; height: 2.75rem; font-size: 1.3rem; flex: none; }
+  .pollcard { background: #fff; border: 1px solid var(--line); border-radius: 1rem; padding: .9rem 1rem; margin-bottom: .9rem; }
+  .pollq { font-weight: 700; font-size: 1.05rem; margin-bottom: .5rem; overflow-wrap: anywhere; }
+  .pollopt { position: relative; display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: #fff; border-radius: .8rem; padding: .65rem .8rem; margin-bottom: .45rem; min-height: 2.75rem; overflow: hidden; cursor: pointer; font: inherit; color: var(--ink); }
+  .pollopt.on { border-color: var(--green); }
+  .pollopt:disabled { cursor: default; }
+  .pollbar { position: absolute; left: 0; top: 0; bottom: 0; background: #dff3fb; z-index: 0; transition: width .25s; }
+  .pollopt.on .pollbar { background: #bfe6f3; }
+  .polltxt { position: relative; z-index: 1; display: flex; justify-content: space-between; gap: .6rem; }
+  .pollwho { position: relative; z-index: 1; display: block; font-size: .75rem; color: #5f5f5f; margin-top: .15rem; }
+  .capcard { display: flex; gap: .8rem; background: #fff; border: 1px solid var(--line); border-radius: 1rem; padding: .9rem 1rem; margin-bottom: .7rem; }
+  .capcard.sealed { background: #fff8ec; border-color: #f0d9aa; }
+  .capmine { margin-top: .4rem; padding: .5rem .7rem; background: #fff; border-radius: .6rem; font-size: .9rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .chatav { width: 2.9rem; height: 2.9rem; border-radius: 50%; background: #eef6f9; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex: none; }
+  .chatdot { width: .7rem; height: .7rem; border-radius: 50%; background: var(--amber); flex: none; margin-left: .5rem; }
+  .chatlist { padding: .5rem 1rem 0; }
+  .chatday { text-align: center; font-size: .75rem; color: #6b6b6b; margin: .8rem 0 .4rem; }
+  .chatname { font-size: .75rem; color: #6b6b6b; margin: .4rem 0 .1rem .5rem; }
+  .chatrow { display: flex; margin: .12rem 0; }
+  .chatrow.mine { justify-content: flex-end; }
+  .bubble { max-width: 80%; border: 0; text-align: left; font: inherit; background: #eceff1; color: var(--ink); border-radius: 1.1rem; padding: .5rem .85rem; overflow-wrap: anywhere; white-space: pre-wrap; cursor: pointer; }
+  .bubble.mine { background: #0879a0; color: #fff; }
+  .chatmeta { font-size: .72rem; color: #6b6b6b; margin: .1rem .6rem; }
+  .chatmeta.mine { text-align: right; }
   .composer2 { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #fff; border-top: 1px solid var(--line); padding-top: .5rem; }
   .composer2 .cform { display: flex; align-items: center; gap: .6rem; padding: 0 1rem; }
   .composer2 .cform input { flex: 1; min-width: 0; height: 2.75rem; border: 1px solid var(--line); border-radius: 1.4rem; padding: 0 1rem; background: #f8f8f8; }

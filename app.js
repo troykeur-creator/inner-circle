@@ -1459,6 +1459,7 @@ function PushAsk() {
 
 function Home() {
   const { me, profiles, toast, push, tick, unread, memberCount } = useApp();
+  const chatUnread = useChatUnread();
   const [posts, setPosts] = useState(null);
   const [stories, setStories] = useState([]);
   const [limit, setLimit] = useState(15);
@@ -1513,6 +1514,7 @@ function Home() {
   const header = html`<div className="top compact"><div className="brand"><${Logo} />Inner Circle</div>
     <div className="row" style=${{ gap: 0 }}>
       ${posts && !noteBy[me.id] && html`<button className="notepill" onClick=${function () { setNoteSheet({ own: true, note: null }); }}>+ Note</button>`}
+      <button className="ibtn" aria-label=${chatUnread ? "Family chat, new messages" : "Family chat"} onClick=${function () { push({ name: "chat" }); }}><${Icon} n="comment" s=${24} />${chatUnread && html`<span className="badge"></span>`}</button>
       <button className="ibtn" aria-label=${unread ? "Activity, new" : "Activity"} onClick=${function () { push({ name: "activity" }); }}><${Icon} n="heart" s=${24} />${unread && html`<span className="badge"></span>`}</button>
     </div></div>`;
 
@@ -1551,6 +1553,7 @@ function Home() {
       <${PushAsk} />
       <${CallBanner} />
       <${ProfileNudge} />
+      <${HomePoll} />
       <${HomeCelebrate} />
       <${BackupReminder} />
       ${me.role === "admin" && memberCount <= 1 && posts && html`<${GettingStarted} hasPosts=${posts.length > 0} />`}
@@ -2765,6 +2768,7 @@ function Profile({ userId, root }) {
       <div style=${{ padding: "0 1.1rem .8rem", fontSize: ".9rem" }}>
         <div style=${{ fontWeight: 600, fontSize: th ? "1.15rem" : undefined, fontFamily: th ? "var(--pf)" : undefined }}>${nm(p)}</div>
         ${p.relation && html`<div className="muted">${p.relation}</div>`}
+        ${!mine && p.tz && localTimeIn(p.tz) && html`<div className="muted" style=${{ fontSize: ".82rem" }}>🕒 ${localTimeIn(p.tz)} where they are</div>`}
         ${p.bio ? html`<div style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><${Linkify} text=${p.bio} /></div>` : mine ? html`<div className="muted">Add a few words about yourself in Edit profile.</div>` : null}
         ${th && th.song && html`<div className="songpill">${"🎵 "}${th.song.url ? html`<a className="lnk" href=${th.song.url} target="_blank" rel="noopener noreferrer nofollow">${th.song.title}</a>` : th.song.title}</div>`}
       </div>
@@ -3762,6 +3766,18 @@ function People() {
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>`}
       ${startCall && html`<${StartCallSheet} onClose=${function () { setStartCall(false); }} />`}
+      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "chat" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>💬 Family chat</div><div className="muted" style=${{ fontSize: ".8rem" }}>Everyone, or just one of your groups</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
+      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "polls" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>📊 Polls</div><div className="muted" style=${{ fontSize: ".8rem" }}>Ask the family, see answers live</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
+      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "capsules" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>💌 Time capsules</div><div className="muted" style=${{ fontSize: ".8rem" }}>Letters that stay sealed until a day you choose</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
       ${canInvite && html`<button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { openInvite(); }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>➕ Invite someone</div><div className="muted" style=${{ fontSize: ".8rem" }}>${me.role === "admin" ? "Send a private one-time link" : "The organizer approves everyone before they join"}</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
@@ -3770,6 +3786,414 @@ function People() {
       ${quiet.length > 0 && html`<div className="hdr">Quiet lately (only you can see this)</div>`}
       ${quiet.map(function (m) { return row(m, true); })}
     </div>`;
+}
+
+/* =====================  Round 12: notification choices, polls, time capsule, family chat  ===================== */
+const NOTIF_KINDS = [
+  ["posts", "New moments", "When someone shares a photo, video or note"],
+  ["comments", "Comments", "When someone comments on a post"],
+  ["hellos", "Hellos and birthday wishes", "Messages sent to you"],
+  ["news", "Family news", "From the organizers"],
+  ["prompts", "Family questions", "Including the Friday question"],
+  ["events", "Events and reminders", "New events, changes, birthdays today"],
+  ["calls", "Video chat calls", "When someone rings you"],
+  ["chat", "Chat messages", "Family chat and group chats"],
+  ["polls", "New polls", "When someone asks the family"],
+  ["capsules", "Time capsules opening", "When a letter for you is ready"]
+];
+function hourLabel(h) { return (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? " AM" : " PM"); }
+function localTimeIn(tz) {
+  try { return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: tz }).format(new Date()); } catch (e) { return ""; }
+}
+function myTimeZone() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; } }
+const SQL_HINT = "The database needs its latest update first (run schema.sql in Supabase).";
+function missingTable(e) { return /relation|does not exist|schema cache|column|function/i.test((e && e.message) || ""); }
+
+/* Per-type switches and quiet hours, saved to your profile. The notification service reads them before it sends. */
+function NotifPrefs() {
+  const { me, toast, reloadMe } = useApp();
+  const [n, setN] = useState(me.notif && typeof me.notif === "object" ? me.notif : {});
+  const q = n.quiet || { on: false, from: 22, to: 7 };
+  async function save(next) {
+    const prev = n;
+    setN(next);
+    const r = await sb.from("profiles").update({ notif: next }).eq("id", me.id);
+    if (r.error) { setN(prev); toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
+    reloadMe();
+  }
+  function setKind(k, on) { const nx = Object.assign({}, n); if (on) delete nx[k]; else nx[k] = false; save(nx); }
+  function setQuiet(p) { save(Object.assign({}, n, { quiet: Object.assign({}, q, p) })); }
+  const hours = []; for (let h = 0; h < 24; h++) hours.push(h);
+  return html`<div style=${{ padding: "0 1rem 1rem" }}>
+    <div style=${{ fontWeight: 600, margin: ".2rem 0 .4rem" }}>Choose what you hear about</div>
+    ${NOTIF_KINDS.map(function (k) {
+      const on = n[k[0]] !== false;
+      return html`<div className="opt" key=${k[0]}><div className="grow"><div>${k[1]}</div><div className="muted" style=${{ fontSize: ".78rem" }}>${k[2]}</div></div>
+        <button role="switch" aria-checked=${on} aria-label=${k[1]} className=${"switch " + (on ? "on" : "")} onClick=${function () { setKind(k[0], !on); }}><i></i></button></div>`;
+    })}
+    <div className="opt"><div className="grow"><div style=${{ fontWeight: 600 }}>Quiet hours</div><div className="muted" style=${{ fontSize: ".78rem" }}>No buzzes during these hours, in your own time zone${myTimeZone() ? " (" + myTimeZone().replace(/_/g, " ") + ")" : ""}</div></div>
+      <button role="switch" aria-checked=${!!q.on} aria-label="Quiet hours" className=${"switch " + (q.on ? "on" : "")} onClick=${function () { setQuiet({ on: !q.on }); }}><i></i></button></div>
+    ${q.on && html`<div className="row" style=${{ gap: ".6rem", alignItems: "center", flexWrap: "wrap" }}>
+      <label htmlFor="qh-from">From</label>
+      <select id="qh-from" className="field" style=${{ width: "auto" }} value=${q.from} onChange=${function (e) { setQuiet({ from: Number(e.target.value) }); }}>${hours.map(function (h) { return html`<option key=${h} value=${h}>${hourLabel(h)}</option>`; })}</select>
+      <label htmlFor="qh-to">until</label>
+      <select id="qh-to" className="field" style=${{ width: "auto" }} value=${q.to} onChange=${function (e) { setQuiet({ to: Number(e.target.value) }); }}>${hours.map(function (h) { return html`<option key=${h} value=${h}>${hourLabel(h)}</option>`; })}</select>
+    </div>`}
+    <div className="muted" style=${{ fontSize: ".78rem", marginTop: ".5rem" }}>New-member requests for organizers always come through. Notifications you miss are still waiting in the app.</div>
+  </div>`;
+}
+
+/* ---------- polls ---------- */
+function usePolls(limit) {
+  const { tick } = useApp();
+  const [st, setSt] = useState({ polls: null, opts: {}, votes: {}, err: false });
+  const load = useCallback(async function () {
+    const a = await sb.from("polls").select("*").order("created_at", { ascending: false }).limit(limit || 30);
+    if (a.error) { setSt({ polls: [], opts: {}, votes: {}, err: true, missing: missingTable(a.error) }); return; }
+    const ids = (a.data || []).map(function (p) { return p.id; });
+    if (!ids.length) { setSt({ polls: [], opts: {}, votes: {}, err: false }); return; }
+    const res = await Promise.all([sb.from("poll_options").select("*").in("poll_id", ids).order("pos"), sb.from("poll_votes").select("option_id,poll_id,user_id").in("poll_id", ids)]);
+    const opts = {}, votes = {};
+    (res[0].data || []).forEach(function (o) { (opts[o.poll_id] = opts[o.poll_id] || []).push(o); });
+    (res[1].data || []).forEach(function (v) { (votes[v.poll_id] = votes[v.poll_id] || []).push(v); });
+    setSt({ polls: a.data, opts: opts, votes: votes, err: !!(res[0].error || res[1].error) });
+  }, [limit]);
+  useEffect(function () { load(); }, [load, tick]);
+  return Object.assign({ reload: load }, st);
+}
+function pollClosed(p) { return !!(p.closes_at && new Date(p.closes_at).getTime() <= Date.now()); }
+function closesText(p) {
+  if (!p.closes_at) return "";
+  const ms = new Date(p.closes_at).getTime() - Date.now();
+  if (ms <= 0) return "Closed";
+  const h = Math.ceil(ms / 3600000);
+  return h < 48 ? "Closes in " + h + (h === 1 ? " hour" : " hours") : "Closes in " + Math.ceil(h / 24) + " days";
+}
+function PollCard({ poll, opts, votes, onChange }) {
+  const { me, profiles, toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [sure, setSure] = useState(false);
+  const closed = pollClosed(poll);
+  const voters = {};
+  (votes || []).forEach(function (v) { voters[v.user_id] = 1; });
+  const total = Object.keys(voters).length;
+  const mineSet = {};
+  (votes || []).forEach(function (v) { if (v.user_id === me.id) mineSet[v.option_id] = true; });
+  async function vote(id) {
+    if (closed || busy) return;
+    setBusy(true);
+    const r = await sb.rpc("cast_vote", { p_option: id });
+    setBusy(false);
+    if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
+    onChange();
+  }
+  async function del() {
+    const r = await sb.from("polls").delete().eq("id", poll.id);
+    if (r.error) { toast(r.error.message); return; }
+    toast("Poll deleted"); onChange();
+  }
+  const canDel = poll.author_id === me.id || me.role === "admin";
+  return html`<div className="pollcard">
+    <div className="row" style=${{ gap: ".5rem", alignItems: "center", marginBottom: ".3rem" }}><${Avatar} id=${poll.author_id} name=${nm(profiles[poll.author_id])} size=${28} />
+      <div className="muted" style=${{ fontSize: ".8rem" }}>${nm(profiles[poll.author_id])} asked · ${agoShort(poll.created_at)}</div></div>
+    <div className="pollq">${poll.question}</div>
+    ${poll.multi && !closed && html`<div className="muted" style=${{ fontSize: ".78rem", marginBottom: ".3rem" }}>Pick as many as you like</div>`}
+    ${(opts || []).map(function (o) {
+      const vs = (votes || []).filter(function (v) { return v.option_id === o.id; });
+      const pct = total ? Math.round(vs.length * 100 / total) : 0;
+      const on = !!mineSet[o.id];
+      return html`<button key=${o.id} className=${"pollopt" + (on ? " on" : "")} disabled=${closed || busy} aria-pressed=${on} onClick=${function () { vote(o.id); }}>
+        <span className="pollbar" style=${{ width: pct + "%" }}></span>
+        <span className="polltxt"><span>${on ? "✓ " : ""}${o.label}</span><b>${vs.length}</b></span>
+        ${vs.length > 0 && html`<span className="pollwho">${vs.slice(0, 6).map(function (v) { return (nm(profiles[v.user_id]).split(" ")[0]); }).join(", ")}${vs.length > 6 ? " +" + (vs.length - 6) : ""}</span>`}
+      </button>`;
+    })}
+    <div className="row" style=${{ justifyContent: "space-between", alignItems: "center", marginTop: ".4rem" }}>
+      <div className="muted" style=${{ fontSize: ".8rem" }}>${total} ${total === 1 ? "person has" : "people have"} voted${poll.closes_at ? " · " + closesText(poll) : ""}</div>
+      ${canDel && (sure ? html`<button className="btn sm grey" onClick=${del}>Really delete</button>` : html`<button className="btn sm grey" onClick=${function () { setSure(true); }}>Delete</button>`)}
+    </div>
+  </div>`;
+}
+function NewPollSheet({ onClose, onDone }) {
+  const { toast } = useApp();
+  const [q, setQ] = useState("");
+  const [os, setOs] = useState(["", ""]);
+  const [multi, setMulti] = useState(false);
+  const [days, setDays] = useState(0);
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    const clean = os.map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!q.trim()) { toast("Write your question first."); return; }
+    if (clean.length < 2) { toast("Add at least two choices."); return; }
+    setBusy(true);
+    const closes = days ? new Date(Date.now() + days * 86400000).toISOString() : null;
+    const r = await sb.rpc("create_poll", { p_question: q.trim(), p_options: clean, p_multi: multi, p_closes: closes });
+    setBusy(false);
+    if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
+    toast("Poll posted"); onDone(); onClose();
+  }
+  return html`<${Sheet} title="Ask the family" onClose=${onClose}>
+    <label htmlFor="poll-q" style=${{ fontWeight: 600 }}>Your question</label>
+    <input id="poll-q" className="field" style=${{ marginTop: ".3rem" }} maxLength="140" placeholder="Example: Which day works for brunch?" value=${q} onChange=${function (e) { setQ(e.target.value); }} />
+    <div style=${{ fontWeight: 600, margin: "1rem 0 .3rem" }}>Choices</div>
+    ${os.map(function (v, i) {
+      return html`<input key=${i} className="field" style=${{ marginBottom: ".4rem" }} maxLength="60" aria-label=${"Choice " + (i + 1)} placeholder=${"Choice " + (i + 1)} value=${v} onChange=${function (e) { const val = e.target.value; setOs(function (a) { return a.map(function (x, j) { return j === i ? val : x; }); }); }} />`;
+    })}
+    ${os.length < 6 && html`<button className="btn sm grey" onClick=${function () { setOs(os.concat([""])); }}>+ Add a choice</button>`}
+    <div className="opt" style=${{ marginTop: ".6rem" }}><div className="grow">Allow more than one answer</div>
+      <button role="switch" aria-checked=${multi} aria-label="Allow more than one answer" className=${"switch " + (multi ? "on" : "")} onClick=${function () { setMulti(!multi); }}><i></i></button></div>
+    <div style=${{ fontWeight: 600, margin: ".6rem 0 .3rem" }}>Closes</div>
+    <div className="chips">${[[0, "Never"], [1, "1 day"], [3, "3 days"], [7, "1 week"]].map(function (d) {
+      return html`<button key=${d[0]} type="button" className=${"chip love" + (days === d[0] ? " on" : "")} aria-pressed=${days === d[0]} onClick=${function () { setDays(d[0]); }}>${d[1]}</button>`;
+    })}</div>
+    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${go}>${busy ? "Posting..." : "Post poll"}</button></div>
+  </${Sheet}>`;
+}
+function PollsScreen() {
+  const { back } = useApp();
+  const P = usePolls(30);
+  const [adding, setAdding] = useState(false);
+  return html`<div><${TopBar} title="Polls" back=${back} right=${html`<button className="ibtn" aria-label="Start a poll" onClick=${function () { setAdding(true); }}><${Icon} n="plusSmall" s=${26} sw=${2.2} /></button>`} />
+    <div style=${{ padding: ".8rem 1rem" }}>
+      ${P.polls === null && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
+      ${P.missing && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Polls are not set up yet. The organizer needs to run the latest SQL.</div>`}
+      ${P.polls && !P.missing && P.polls.length === 0 && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>No polls yet. Tap + to ask the family something, like where to eat or which weekend works.</div>`}
+      ${(P.polls || []).map(function (p) { return html`<${PollCard} key=${p.id} poll=${p} opts=${P.opts[p.id]} votes=${P.votes[p.id]} onChange=${P.reload} />`; })}
+    </div>
+    ${adding && html`<${NewPollSheet} onClose=${function () { setAdding(false); }} onDone=${P.reload} />`}
+  </div>`;
+}
+function HomePoll() {
+  const { push } = useApp();
+  const P = usePolls(5);
+  if (!P.polls || P.err) return null;
+  const p = P.polls.find(function (x) { return !pollClosed(x) && Date.now() - new Date(x.created_at).getTime() < 14 * 86400000; });
+  if (!p) return null;
+  return html`<div style=${{ padding: "0 1rem" }}><${PollCard} poll=${p} opts=${P.opts[p.id]} votes=${P.votes[p.id]} onChange=${P.reload} />
+    <button className="btn sm grey" style=${{ margin: "-.2rem 0 .8rem" }} onClick=${function () { push({ name: "polls" }); }}>All polls</button></div>`;
+}
+
+/* ---------- time capsule ---------- */
+function fmtLong(d) { return new Date(d).toLocaleDateString(undefined, { weekday: "short", month: "long", day: "numeric", year: "numeric" }); }
+function NewCapsuleSheet({ onClose, onDone }) {
+  const { me, profiles, toast } = useApp();
+  const others = approvedOthers(profiles, me);
+  const [body, setBody] = useState("");
+  const [who, setWho] = useState([]);
+  const [date, setDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const tom = new Date(Date.now() + 86400000);
+  const min = tom.getFullYear() + "-" + String(tom.getMonth() + 1).padStart(2, "0") + "-" + String(tom.getDate()).padStart(2, "0");
+  function preset(months) { const d = new Date(); d.setMonth(d.getMonth() + months); d.setHours(12); setDate(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0")); }
+  function toggle(id) { setWho(function (w) { return w.indexOf(id) >= 0 ? w.filter(function (x) { return x !== id; }) : w.length >= 10 ? w : w.concat([id]); }); }
+  async function go() {
+    if (!body.trim()) { toast("Write your letter first."); return; }
+    if (!date) { toast("Pick the day it should open."); return; }
+    const p = date.split("-").map(Number);
+    const at = new Date(p[0], p[1] - 1, p[2], 9, 0, 0);
+    if (at.getTime() < Date.now() + 3600000) { toast("Pick a day after today."); return; }
+    setBusy(true);
+    const r = await sb.from("capsules").insert({ author_id: me.id, for_ids: who, body: body.trim(), unlock_at: at.toISOString() });
+    setBusy(false);
+    if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
+    toast("Sealed. It will open on " + fmtLong(at)); onDone(); onClose();
+  }
+  return html`<${Sheet} title="Write a time capsule" onClose=${onClose}>
+    <p className="muted" style=${{ marginTop: 0 }}>Write a letter now that stays sealed until the day you pick. Everyone it is for gets a notification when it opens. Good for wedding wishes, a note to the couple's future selves, or a message for a milestone.</p>
+    <label htmlFor="cap-body" style=${{ fontWeight: 600 }}>Your letter</label>
+    <textarea id="cap-body" className="field" style=${{ marginTop: ".3rem", minHeight: "7rem" }} maxLength="2000" placeholder="Dear..." value=${body} onChange=${function (e) { setBody(e.target.value); }}></textarea>
+    <div style=${{ fontWeight: 600, margin: "1rem 0 .4rem" }}>Who is it for?</div>
+    <div className="chips"><button type="button" className=${"chip pick" + (who.length === 0 ? " on" : "")} aria-pressed=${who.length === 0} onClick=${function () { setWho([]); }}>The whole family</button></div>
+    <div className="muted" style=${{ fontSize: ".8rem", margin: ".5rem 0 .3rem" }}>Or pick up to 10 people:</div>
+    <div className="chips">${others.map(function (p) {
+      const on = who.indexOf(p.id) >= 0;
+      return html`<button type="button" key=${p.id} className=${"chip love" + (on ? " on" : "")} aria-pressed=${on} onClick=${function () { toggle(p.id); }}>${nm(p)}</button>`;
+    })}</div>
+    <div style=${{ fontWeight: 600, margin: "1rem 0 .4rem" }}>Open it on</div>
+    <div className="chips">${[[1, "1 month"], [6, "6 months"], [12, "1 year"], [60, "5 years"]].map(function (m) {
+      return html`<button key=${m[0]} type="button" className="chip" onClick=${function () { preset(m[0]); }}>${m[1]}</button>`;
+    })}</div>
+    <label htmlFor="cap-date" className="sr">Opening date</label>
+    <input id="cap-date" type="date" className="field" style=${{ marginTop: ".5rem" }} min=${min} value=${date} onChange=${function (e) { setDate(e.target.value); }} />
+    <div className="muted" style=${{ fontSize: ".78rem", marginTop: ".4rem" }}>It opens around 9 AM that day. You can read your own letters any time, and delete them before they open.</div>
+    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${go}>${busy ? "Sealing..." : "Seal it"}</button></div>
+  </${Sheet}>`;
+}
+function CapsuleScreen() {
+  const { me, profiles, back, toast, tick } = useApp();
+  const [rows, setRows] = useState(null);
+  const [missing, setMissing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const load = useCallback(async function () {
+    const r = await sb.rpc("list_capsules");
+    if (r.error) { setMissing(missingTable(r.error)); setRows([]); return; }
+    setRows(r.data || []);
+  }, []);
+  useEffect(function () { load(); }, [load, tick]);
+  async function del(c) {
+    if (!confirm("Delete this letter? This cannot be undone.")) return;
+    const r = await sb.from("capsules").delete().eq("id", c.id);
+    if (r.error) { toast(r.error.message); return; }
+    load();
+  }
+  const open = (rows || []).filter(function (c) { return c.is_open; }).sort(function (a, b) { return new Date(b.unlock_at) - new Date(a.unlock_at); });
+  const sealed = (rows || []).filter(function (c) { return !c.is_open; });
+  function forWhom(c) {
+    if (!c.for_ids || !c.for_ids.length) return "the whole family";
+    return c.for_ids.map(function (id) { return nm(profiles[id]).split(" ")[0]; }).join(", ");
+  }
+  return html`<div><${TopBar} title="Time capsules" back=${back} right=${html`<button className="ibtn" aria-label="Write a time capsule" onClick=${function () { setAdding(true); }}><${Icon} n="plusSmall" s=${26} sw=${2.2} /></button>`} />
+    <div style=${{ padding: ".8rem 1rem" }}>
+      ${rows === null && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
+      ${missing && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Time capsules are not set up yet. The organizer needs to run the latest SQL.</div>`}
+      ${rows && !missing && rows.length === 0 && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Nothing sealed yet. Tap + to write a letter that opens on a day you choose.</div>`}
+      ${sealed.length > 0 && html`<h3 className="serif sec" style=${{ margin: "0 0 .5rem" }}>Waiting to open</h3>`}
+      ${sealed.map(function (c) {
+        return html`<div key=${c.id} className="capcard sealed">
+          <div style=${{ fontSize: "1.6rem" }} aria-hidden="true">💌</div>
+          <div className="grow"><div style=${{ fontWeight: 600 }}>${c.mine ? "Your letter for " + forWhom(c) : "A letter from " + nm(profiles[c.author_id])}</div>
+            <div className="muted" style=${{ fontSize: ".85rem" }}>Opens ${fmtLong(c.unlock_at)}${c.mine ? "" : " · " + daysUntil(c.unlock_at) + " days to go"}</div>
+            ${c.mine && c.body && html`<div className="capmine">${c.body}</div>`}
+            ${c.mine && html`<button className="btn sm grey" style=${{ marginTop: ".5rem" }} onClick=${function () { del(c); }}>Delete</button>`}
+          </div></div>`;
+      })}
+      ${open.length > 0 && html`<h3 className="serif sec" style=${{ margin: "1rem 0 .5rem" }}>Opened</h3>`}
+      ${open.map(function (c) {
+        return html`<div key=${c.id} className="capcard">
+          <div className="grow"><div className="muted" style=${{ fontSize: ".8rem" }}>${"From " + (c.author_id === me.id ? "you" : nm(profiles[c.author_id])) + " · for " + forWhom(c) + " · opened " + fmtLong(c.unlock_at)}</div>
+            <div style=${{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: ".3rem" }}>${c.body}</div>
+            ${c.mine && html`<button className="btn sm grey" style=${{ marginTop: ".5rem" }} onClick=${function () { del(c); }}>Delete</button>`}</div></div>`;
+      })}
+    </div>
+    ${adding && html`<${NewCapsuleSheet} onClose=${function () { setAdding(false); }} onDone=${load} />`}
+  </div>`;
+}
+
+/* ---------- family chat ---------- */
+function chatKey(gid) { return gid || "all"; }
+function chatSeen(gid) { return lsGet("ic-chat-seen-" + chatKey(gid), ""); }
+function useChatRooms() {
+  const { tick } = useApp();
+  const [rows, setRows] = useState(null);
+  const [missing, setMissing] = useState(false);
+  const load = useCallback(async function () {
+    const r = await sb.rpc("chat_latest");
+    if (r.error) { setMissing(missingTable(r.error)); setRows([]); return; }
+    setRows(r.data || []);
+  }, []);
+  useEffect(function () { load(); }, [load, tick]);
+  return { rows: rows, missing: missing, reload: load };
+}
+function useChatUnread() {
+  const { me } = useApp();
+  const C = useChatRooms();
+  return (C.rows || []).some(function (m) { return m.author_id !== me.id && m.created_at > chatSeen(m.group_id); });
+}
+function ChatList() {
+  const { me, profiles, groupNames, back, push } = useApp();
+  const C = useChatRooms();
+  const latest = {};
+  (C.rows || []).forEach(function (m) { latest[chatKey(m.group_id)] = m; });
+  const rooms = [{ key: "all", name: "Everyone", sub: "The whole Inner Circle" }].concat(Object.keys(groupNames || {}).map(function (id) { return { key: id, name: groupNames[id], sub: "Group" }; }));
+  return html`<div><${TopBar} title="Family chat" back=${back} />
+    <div style=${{ padding: ".5rem 0" }}>
+      ${C.missing && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Chat is not set up yet. The organizer needs to run the latest SQL.</div>`}
+      ${!C.missing && rooms.map(function (r) {
+        const m = latest[r.key];
+        const unread = m && m.author_id !== me.id && m.created_at > chatSeen(r.key === "all" ? null : r.key);
+        return html`<button key=${r.key} className="listrow" style=${{ borderBottom: "1px solid var(--soft)" }} onClick=${function () { push({ name: "chatroom", gid: r.key }); }}>
+          <div className="chatav" aria-hidden="true">${r.key === "all" ? "👨‍👩‍👧‍👦" : "👥"}</div>
+          <div className="grow" style=${{ minWidth: 0 }}><div style=${{ fontWeight: unread ? 700 : 600 }}>${r.name}</div>
+            <div className="muted" style=${{ fontSize: ".85rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>${m ? (m.author_id === me.id ? "You" : nm(profiles[m.author_id]).split(" ")[0]) + ": " + m.body : r.sub + ". Say hi!"}</div></div>
+          ${m && html`<div className="muted" style=${{ fontSize: ".75rem" }}>${agoShort(m.created_at)}</div>`}
+          ${unread && html`<span className="chatdot" aria-label="New messages"></span>`}
+        </button>`;
+      })}
+    </div></div>`;
+}
+function ChatRoom({ gid }) {
+  const { me, profiles, groupNames, back, toast, bump } = useApp();
+  const room = gid === "all" || !gid ? null : gid;
+  const [msgs, setMsgs] = useState(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sel, setSel] = useState(null);
+  const input = useRef(null);
+  const bottom = useRef(null);
+  const nearEnd = useRef(true);
+  const kb = useKeyboardInset();
+  const load = useCallback(async function () {
+    let q = sb.from("chat_messages").select("*").order("created_at", { ascending: false }).limit(100);
+    q = room ? q.eq("group_id", room) : q.is("group_id", null);
+    const r = await q;
+    if (r.error) { if (missingTable(r.error)) setMsgs([]); return; }
+    const list = (r.data || []).slice().reverse();
+    setMsgs(function (old) { return old && old.length === list.length && old.length && old[old.length - 1].id === list[list.length - 1].id ? old : list; });
+    if (list.length) { lsSet("ic-chat-seen-" + chatKey(room), list[list.length - 1].created_at); }
+  }, [room]);
+  useEffect(function () {
+    load();
+    const t = setInterval(function () { if (!document.hidden) load(); }, 3000);
+    return function () { clearInterval(t); bump(); };
+  }, [load]);
+  useEffect(function () { if (nearEnd.current && bottom.current && bottom.current.scrollIntoView) bottom.current.scrollIntoView({ block: "end" }); }, [msgs && msgs.length, kb]);
+  useEffect(function () {
+    function onScroll() { nearEnd.current = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160; }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return function () { window.removeEventListener("scroll", onScroll); };
+  }, []);
+  async function send(e) {
+    if (e) e.preventDefault();
+    const body = text.trim();
+    if (!body || busy) return;
+    setBusy(true);
+    const r = await sb.from("chat_messages").insert({ group_id: room, author_id: me.id, body: body }).select("*").single();
+    setBusy(false);
+    if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
+    setText("");
+    nearEnd.current = true;
+    setMsgs(function (old) { return (old || []).concat([r.data]); });
+    lsSet("ic-chat-seen-" + chatKey(room), r.data.created_at);
+    if (input.current) input.current.focus();
+  }
+  async function del(m) {
+    const r = await sb.from("chat_messages").delete().eq("id", m.id);
+    if (r.error) { toast(r.error.message); return; }
+    setSel(null);
+    setMsgs(function (old) { return (old || []).filter(function (x) { return x.id !== m.id; }); });
+  }
+  const title = room ? ((groupNames && groupNames[room]) || "Group chat") : "Everyone";
+  let lastDay = "", lastAuthor = "";
+  return html`<div><${TopBar} title=${title} back=${back} />
+    <div className="chatlist" aria-live="polite">
+      ${msgs === null && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
+      ${msgs && msgs.length === 0 && html`<div className="center muted" style=${{ padding: "3rem 1.5rem" }}>No messages yet. Say hello to ${room ? "the group" : "the family"}.</div>`}
+      ${(msgs || []).map(function (m) {
+        const mine = m.author_id === me.id;
+        const day = new Date(m.created_at).toDateString();
+        const showDay = day !== lastDay;
+        const showName = !mine && (showDay || lastAuthor !== m.author_id);
+        lastDay = day; lastAuthor = m.author_id;
+        const canDel = mine || me.role === "admin";
+        return html`<div key=${m.id}>
+          ${showDay && html`<div className="chatday">${new Date(m.created_at).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</div>`}
+          ${showName && html`<div className="chatname">${nm(profiles[m.author_id])}</div>`}
+          <div className=${"chatrow" + (mine ? " mine" : "")}>
+            <button className=${"bubble" + (mine ? " mine" : "")} onClick=${function () { setSel(sel === m.id ? null : m.id); }} aria-label=${(mine ? "You" : nm(profiles[m.author_id])) + ": " + m.body}>${m.body}</button>
+          </div>
+          ${sel === m.id && html`<div className=${"chatmeta" + (mine ? " mine" : "")}>${new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}${canDel && html` · <button className="lnk" onClick=${function () { del(m); }}>Delete</button>`}</div>`}
+        </div>`;
+      })}
+      <div ref=${bottom} style=${{ height: "5.5rem" }}></div>
+    </div>
+    <div className="composer2" style=${{ bottom: kb + "px", paddingBottom: kb > 0 ? ".5rem" : "calc(env(safe-area-inset-bottom, 0px) + .5rem)" }}>
+      <form className="cform" onSubmit=${send}>
+        <${EmojiBtn} onPick=${function (em) { setText(function (t) { return (t + em).slice(0, 2000); }); if (input.current) input.current.focus(); }} />
+        <label className="sr" htmlFor="chat-in">Message</label>
+        <input id="chat-in" ref=${input} type="text" value=${text} maxLength="2000" autoComplete="off" placeholder=${"Message " + title + "..."} onChange=${function (e) { setText(e.target.value); }} />
+        <button className="sendbtn" aria-label="Send" disabled=${busy || !text.trim()}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l14-7-5 14-2-6z"/></svg></button>
+      </form>
+    </div></div>`;
 }
 
 /* =====================  organizer (admin)  ===================== */
@@ -3816,6 +4240,13 @@ function Organizer() {
   async function setStatus(id, status) {
     const r = await sb.rpc("set_member_status", { target: id, new_status: status });
     toast(r.error ? r.error.message : "Done");
+    await load(); reloadProfiles(); bump();
+  }
+  async function setRole(p) {
+    const making = p.role !== "admin";
+    if (!confirm(making ? "Make " + nm(p) + " an organizer? They will be able to welcome and remove people, post news and change settings, just like you." : "Make " + nm(p) + " a regular member again?")) return;
+    const r = await sb.rpc("set_member_role", { target: p.id, new_role: making ? "admin" : "member" });
+    toast(r.error ? r.error.message : making ? nm(p) + " is now an organizer" : nm(p) + " is a regular member");
     await load(); reloadProfiles(); bump();
   }
   async function saveCode() {
@@ -3897,11 +4328,71 @@ function Organizer() {
         <h2 className="serif sec">Members</h2>
         ${!approved.length && html`<div className="muted" style=${{ fontSize: ".85rem" }}>Just you so far.</div>`}
         ${approved.map(function (p) {
-          return html`<div className="row" key=${p.id} style=${{ margin: ".4rem 0" }}><div className="grow">${nm(p)}${p.relation ? html`<span className="muted"> · ${p.relation}</span>` : ""}</div>
-            <button className="linkbtn" style=${{ color: "var(--red)" }} onClick=${function () { if (confirm("Remove " + nm(p) + " from Inner Circle?")) setStatus(p.id, "removed"); }}>Remove</button></div>`;
+          return html`<div className="row" key=${p.id} style=${{ margin: ".4rem 0" }}><div className="grow">${nm(p)}${p.role === "admin" ? html` <span className="orgtag">Organizer</span>` : ""}${p.relation ? html`<span className="muted"> · ${p.relation}</span>` : ""}</div>
+            <button className="linkbtn" onClick=${function () { setRole(p); }}>${p.role === "admin" ? "Make member" : "Make organizer"}</button>
+            ${p.role !== "admin" && html`<button className="linkbtn" style=${{ color: "var(--red)" }} onClick=${function () { if (confirm("Remove " + nm(p) + " from Inner Circle?")) setStatus(p.id, "removed"); }}>Remove</button>`}</div>`;
         })}
       </div>
     </div>`;
+}
+
+/* =====================  help and privacy  ===================== */
+function HelpScreen() {
+  const { me, profiles, back } = useApp();
+  const orgs = Object.keys(profiles).map(function (k) { return profiles[k]; }).filter(function (p) { return p.role === "admin" && p.status === "approved"; }).map(nm);
+  const sec = function (title, open, body) {
+    return html`<details className="helpsec" open=${!!open}><summary>${title}</summary><div className="helpbody">${body}</div></details>`;
+  };
+  return html`<div><${TopBar} title="Help and privacy" back=${back} />
+    <div style=${{ padding: ".5rem 1rem 2rem" }}>
+      ${sec("Your information and who can see it", true, html`<div>
+        <p><b>Only people the organizer has welcomed can see anything here.</b> Every new person waits for approval, even if a family member invited them.</p>
+        <ul>
+          <li>Photos, videos and voice memos are kept in private storage. They are shown only to signed-in members, through short-lived links.</li>
+          <li>There are no ads, no tracking and no analytics. Nothing is sold.</li>
+          <li>A post shared with a group, or hidden from someone, is not visible to the people left out.</li>
+          <li>Your birthday shows the month and day only, never the year.</li>
+          <li>"Your day" posts and notes disappear from the top of Home after 24 hours.</li>
+          <li>Video chats are never recorded or saved.</li>
+        </ul>
+        <p><b>Outside services this app relies on:</b></p>
+        <ul>
+          <li>Supabase stores the app's data and photos, and a texting service sends your sign-in codes.</li>
+          <li>GIPHY, only when you search for a GIF: the words you search for are sent to them. A GIF you choose is copied into our own private storage.</li>
+          <li>Google's public servers help phones find each other for video chat. They can see network addresses, but not your picture or sound, which go phone to phone.</li>
+        </ul>
+        <p>As with any app, whoever runs it has technical access to what is stored. The organizers can also remove people and posts.</p>
+      </div>`)}
+      ${sec("Getting the app on your phone", false, html`<div>
+        <p><b>iPhone:</b> open the link in Safari (not inside another app). Tap the Share button, then <b>Add to Home Screen</b>, then <b>Add</b>. From then on open Inner Circle from that icon. Notifications on iPhone only work from the home screen icon, and need iOS 16 or newer.</p>
+        <p><b>Android:</b> in Chrome, tap <b>Install</b> when it asks, or tap the three dots, then <b>Install app</b>.</p>
+      </div>`)}
+      ${sec("Notifications are not working", false, html`<div>
+        <p>Open <b>Me</b>, tap the gear, and turn on the <b>Notifications</b> switch. If it shows a red message, that tells you what is wrong.</p>
+        <p>Once they are on, you can choose which kinds you hear about (chat, polls, new moments and so on) and set quiet hours. Quiet hours use the time zone of the phone you open the app on.</p>
+        <p><b>iPhone:</b> Settings, Notifications, Inner Circle, Allow Notifications. <b>Android:</b> press and hold the Inner Circle icon, tap App info, then Notifications, and turn them on.</p>
+      </div>`)}
+      ${sec("Sharing photos, videos and GIFs", false, html`<div>
+        <p>Tap <b>Share</b> at the bottom. You can add up to 10 photos and one video to the same post, or a GIF. In comments, tap the GIF button to search, or the smiley for emoji.</p>
+        <p>Use <b>Your day</b> at the top of Home for quick moments that last a day.</p>
+      </div>`)}
+      ${sec("Video chat", false, html`<div>
+        <p>Open <b>People</b>, then <b>Video chat</b>. Up to 4 people can be in one room. Allow the camera and microphone when your phone asks, use Wi-Fi if you can, and keep your screen on, because a locked phone drops out of the call.</p>
+        <p>If you can join but cannot see or hear someone, ask them to leave and rejoin, or try on Wi-Fi.</p>
+      </div>`)}
+      ${sec("Chat, polls and time capsules", false, html`<div>
+        <p><b>Family chat:</b> tap the chat bubble at the top of Home, or People, then Family chat. "Everyone" is the whole Inner Circle; each of your groups has its own room. Messages are text and emoji. Tap a message to delete your own. Organizers can delete any message.</p>
+        <p><b>Polls:</b> People, then Polls. Tap a choice to vote, tap it again to take your vote back. Everyone can see who voted for what.</p>
+        <p><b>Time capsules:</b> People, then Time capsules. A letter stays hidden from everyone but you until the day you choose, then the people it is for get a notification. You can delete a letter before it opens. As with everything stored here, whoever runs the app has technical access.</p>
+        <p>Your time zone is saved automatically so family can see your local time on your profile.</p>
+      </div>`)}
+      ${sec("Leaving, or removing something", false, html`<div>
+        <p>You can delete your own posts (from the ••• menu on the post) and your own comments (tap Delete under them). To leave Inner Circle, or to have everything you shared removed, ask an organizer.</p>
+      </div>`)}
+      ${sec("Who to ask for help", false, html`<div>
+        <p>${orgs.length ? "Organizers: " + orgs.join(", ") + "." : "Ask the family organizer."} You can find them on the People tab, or just text them.</p>
+      </div>`)}
+    </div></div>`;
 }
 
 /* =====================  memories  ===================== */
@@ -4121,6 +4612,10 @@ function Settings() {
         <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>Favorites, finish-the-sentence, two truths and a lie, emoji</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>
+      <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "help" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Help and privacy</div><div className="muted" style=${{ fontSize: ".8rem" }}>How your information is handled, and how to get unstuck</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
       <div style=${{ padding: "1rem", borderTop: "1px solid var(--soft)" }}>
         <div style=${{ fontWeight: 600 }}>Sign in with your phone</div>
         ${curPhone ? html`<div className="muted" style=${{ fontSize: ".85rem", marginTop: ".2rem" }}>Texts go to ${curPhone}. Use "Text me a code" on the sign-in screen.</div>`
@@ -4143,6 +4638,7 @@ function Settings() {
           <div className="muted" style=${{ fontSize: ".8rem" }}>${pushNeedsInstall() ? "On iPhone, first add Inner Circle to your home screen (Share, then Add to Home Screen), open it from there, then come back here." : pushOn ? "On. You will be told when family shares, comments or says hello." : "Get a buzz when family shares, comments or says hello."}</div></div>
         <button role="switch" aria-checked=${pushOn} aria-label="Notifications" disabled=${pushBusy || pushNeedsInstall()} className=${"switch " + (pushOn ? "on" : "")} onClick=${togglePush}><i></i></button>
       </div>
+      ${pushOn && html`<${NotifPrefs} />`}
       ${pushErr && html`<div role="alert" style=${{ margin: "0 1rem .8rem", padding: ".7rem .9rem", borderRadius: ".7rem", background: "#ffe1d8", color: "#7a2a10", fontSize: ".85rem" }}>${pushErr}</div>`}`}
       <div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Larger text</div><div className="muted" style=${{ fontSize: ".8rem" }}>Bigger words and buttons</div></div>
@@ -4638,13 +5134,20 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
   const savedScroll = useRef(null);
 
   const loadProfiles = useCallback(async function () {
-    let r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day,cover_path,theme,top_friends");
+    let r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day,cover_path,theme,top_friends,tz");
+    if (r.error) r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day,cover_path,theme,top_friends");
     if (r.error) r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day");   /* older database: themes not set up yet */
     const m = {};
     (r.data || []).forEach(function (x) { m[x.id] = x; });
     setProfiles(m);
   }, []);
   useEffect(function () { loadProfiles(); }, [loadProfiles, tick]);
+  /* remember my time zone so family can see my local time and quiet hours work */
+  useEffect(function () {
+    const z = myTimeZone();
+    if (!z || me.tz === z) return;
+    sb.from("profiles").update({ tz: z }).eq("id", me.id).then(function (r) { if (!r.error) { reloadMe(); loadProfiles(); } }).catch(function () {});
+  }, [me.id, me.tz]);
 
   const bump = useCallback(function () { setTick(function (t) { return t + 1; }); }, []);
   useEffect(function () {   /* keep this phone's notification address fresh */
@@ -4707,6 +5210,16 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
         history.replaceState({}, "", location.pathname);
         push({ name: "call", id: id });
       }
+    } catch (e) {}
+  }, []);
+
+  /* open a chat or capsule from a notification (?chat=all|<group>, ?capsule=1) */
+  useEffect(function () {
+    try {
+      const qs = new URLSearchParams(location.search);
+      const c = qs.get("chat"), cap = qs.get("capsule");
+      if (c && (c === "all" || /^[0-9a-f-]{36}$/i.test(c))) { history.replaceState({}, "", location.pathname); push({ name: "chat" }); push({ name: "chatroom", gid: c }); }
+      else if (cap) { history.replaceState({}, "", location.pathname); push({ name: "capsules" }); }
     } catch (e) {}
   }, []);
 
@@ -4792,6 +5305,11 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "story": return html`<${StoryViewer} authorId=${route.authorId} />`;
       case "settings": return html`<${Settings} />`;
       case "prefs": return html`<${PrefsEditor} />`;
+      case "help": return html`<${HelpScreen} />`;
+      case "polls": return html`<${PollsScreen} />`;
+      case "capsules": return html`<${CapsuleScreen} />`;
+      case "chat": return html`<${ChatList} />`;
+      case "chatroom": return html`<${ChatRoom} gid=${route.gid} key=${route.gid} />`;
       case "guesswho": return html`<${GuessWho} />`;
       case "theme": return html`<${ThemeEditor} />`;
       case "organizer": return html`<${Organizer} />`;
@@ -4802,7 +5320,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
 
   const root = stack[0];
   const top = stack[stack.length - 1];
-  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "guesswho", "organizer", "groups", "prompt", "news", "album", "celebrations", "events", "event"].indexOf(top.name) >= 0;
+  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "guesswho", "organizer", "groups", "prompt", "news", "album", "celebrations", "events", "event", "polls", "capsules", "chat"].indexOf(top.name) >= 0;
   const topKey = stack.length + ":" + top.name + (top.userId || top.postId || top.id || top.authorId || "");
 
   const tabs = [
