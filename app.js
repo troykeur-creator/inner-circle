@@ -1275,7 +1275,7 @@ function CallScreen({ id }) {
       <div style=${{ padding: "1rem" }}>
         ${call === undefined && html`<div className="center muted" style=${{ padding: "3rem" }}>One moment...</div>`}
         ${call === null && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat is not here anymore.</div>`}
-        ${call && ended && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat has ended. You can start a new one from More, then Video chat.</div>`}
+        ${call && ended && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat has ended. You can start a new one from the Chat tab.</div>`}
         ${call && !ended && !callSupported() && html`<div className="warnbox">This browser cannot do video chat. On an iPhone, open Inner Circle from the home screen icon or in Safari (iOS 16 or newer). On Android, use Chrome.</div>`}
         ${call && !ended && callSupported() && html`<div className="knowcard" style=${{ margin: 0 }}>
           <div style=${{ fontWeight: 700, fontSize: "1.1rem" }}>${call.host_id === me.id ? "Your video chat" : nm(host) + " is on a video chat"}</div>
@@ -1473,6 +1473,7 @@ function Home() {
   const [answers, setAnswers] = useState([]);
   const [news, setNews] = useState(null);
   const [noteSheet, setNoteSheet] = useState(null);
+  const P = usePolls(5);
 
   const load = useCallback(async function () {
     const since = new Date(Date.now() - 86400000).toISOString();
@@ -1498,6 +1499,10 @@ function Home() {
   }, [limit]);
   useEffect(function () { load(); }, [load, tick]);
 
+  /* keep the top of Home calm: when news, a question and a poll are all showing, the profile nudge waits */
+  const recentNews = !!(news && daysSince(news.created_at) < 14), recentPrompt = !!(prompt && daysSince(prompt.created_at) < 14);
+  const hasPoll = !!(P.polls && !P.err && P.polls.some(function (x) { return !pollClosed(x) && Date.now() - new Date(x.created_at).getTime() < 14 * 86400000; }));
+  const crowded = (recentNews ? 1 : 0) + (recentPrompt ? 1 : 0) + (hasPoll ? 1 : 0) >= 2;
   const seen = getSeen();
   const groups = {};
   stories.forEach(function (s) { (groups[s.author_id] = groups[s.author_id] || []).push(s.id); });
@@ -1555,8 +1560,8 @@ function Home() {
       ${noteSheet && html`<${NoteSheet} target=${noteSheet} onClose=${function () { setNoteSheet(null); }} onDone=${load} />`}
       <${PushAsk} />
       <${CallBanner} />
-      <${ProfileNudge} />
-      <${HomePoll} />
+      ${!crowded && html`<${ProfileNudge} />`}
+      <${HomePoll} P=${P} />
       <${HomeCelebrate} />
       <${BackupReminder} />
       ${me.role === "admin" && memberCount <= 1 && posts && html`<${GettingStarted} hasPosts=${posts.length > 0} />`}
@@ -3224,10 +3229,7 @@ function Events({ root }) {
   if (err && !events) return html`<div><${Bar} root=${root} title="Events" back=${back} /><${Failed} what="events" onRetry=${load} /></div>`;
   return html`<div>
     <${Bar} root=${root} title="Events" back=${back} right=${html`<button className="tbtn" onClick=${function () { setForm(true); }}>New</button>`} />
-    <button className="listrow" style=${{ borderTop: "1px solid var(--soft)", borderBottom: "1px solid var(--soft)", marginBottom: ".6rem" }} onClick=${function () { push({ name: "celebrations" }); }}>
-      <div className="grow"><div style=${{ fontWeight: 600 }}>🎂 Birthdays and anniversaries</div><div className="muted" style=${{ fontSize: ".8rem" }}>Never miss a special day, send a wish</div></div>
-      <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-    </button>
+
     ${!events && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
     ${events && upcoming.length === 0 && html`<div className="cmtempty">
       <div className="bub"><span style=${{ fontSize: "1.8rem" }}>🎉</span></div>
@@ -3236,6 +3238,10 @@ function Events({ root }) {
       <button className="btn" onClick=${function () { setForm(true); }}>Create the first event</button>
     </div>`}
     ${upcoming.map(card)}
+    <button className="listrow" style=${{ borderTop: "1px solid var(--soft)", borderBottom: "1px solid var(--soft)", margin: ".6rem 0" }} onClick=${function () { push({ name: "celebrations" }); }}>
+      <div className="grow"><div style=${{ fontWeight: 600 }}>🎂 Birthdays and anniversaries</div><div className="muted" style=${{ fontSize: ".8rem" }}>Never miss a special day, send a wish</div></div>
+      <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+    </button>
     ${past.length > 0 && html`<div style=${{ padding: ".6rem 1rem" }}><button className="linkbtn" onClick=${function () { setShowPast(!showPast); }}>${showPast ? "Hide past events" : "Show past events (" + past.length + ")"}</button></div>`}
     ${showPast && past.map(card)}
     ${form && html`<${EventForm} onClose=${function () { setForm(false); }} onSaved=${function () { setForm(false); load(); bump(); }} />`}
@@ -3632,10 +3638,10 @@ async function runBackup(withMedia, setStatus) {
     return out;
   };
   setStatus("Reading your family's posts...");
-  const names = ["posts", "comments", "news", "prompts", "albums", "album_posts", "events", "event_rsvps", "event_items", "event_messages", "anniversaries", "wishes"];
+  const names = ["posts", "comments", "news", "prompts", "albums", "album_posts", "events", "event_rsvps", "event_items", "event_messages", "anniversaries", "wishes", "polls", "poll_options", "poll_votes", "chat_messages"];
   const data = { made: new Date().toISOString(), note: "Everything the account that made this backup is allowed to see." };
-  data.profiles = await fetchAll("profiles", "id,display_name,bio,relation,role,status,created_at,birth_month,birth_day");
-  for (let i = 0; i < names.length; i++) { setStatus("Reading " + names[i].replace("_", " ") + "..."); data[names[i]] = await fetchAll(names[i]); }
+  try { data.profiles = await fetchAll("profiles", "id,display_name,bio,relation,role,status,created_at,birth_month,birth_day,birth_year"); } catch (e) { data.profiles = await fetchAll("profiles", "id,display_name,bio,relation,role,status,created_at,birth_month,birth_day"); }
+  for (let i = 0; i < names.length; i++) { setStatus("Reading " + names[i].replace("_", " ") + "..."); try { data[names[i]] = await fetchAll(names[i]); } catch (e) { if (i < 12) throw e; data[names[i]] = []; } }   /* newer tables may not exist on an older database */
   const mod = await import("https://esm.sh/jszip@3.10.1");
   const JSZip = mod.default || mod;
   const zip = new JSZip();
@@ -3720,13 +3726,12 @@ function Tile({ icon, label, sub, onClick, dot }) {
 function MoreScreen() {
   const { me, push, openInvite, pendingCount, memberCount } = useApp();
   const canInvite = useCanInvite();
-  const [startCall, setStartCall] = useState(false);
   const admin = me.role === "admin";
   return html`<div>
     <div className="top"><h1 className="serif" style=${{ color: "#0879a0", fontSize: "1.7rem" }}>More</h1></div>
     <button className="mecard" onClick=${function () { push({ name: "profile", userId: me.id }); }}>
       <${Avatar} id=${me.id} name=${me.display_name} size=${56} />
-      <div className="grow" style=${{ textAlign: "left", minWidth: 0 }}><div style=${{ fontWeight: 700, fontSize: "1.1rem" }}>${nm(me)}</div><div className="muted" style=${{ fontSize: ".85rem" }}>See my profile and posts</div></div>
+      <div className="grow" style=${{ textAlign: "left", minWidth: 0 }}><div style=${{ fontWeight: 700, fontSize: "1.1rem" }}>${nm(me)}</div><div className="muted" style=${{ fontSize: ".85rem" }}>${!me.avatar_path ? "Add a profile photo" : !me.birth_month ? "Add your birthday" : "See my profile and posts"}</div></div>
       <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
     </button>
     <h2 className="morehd">Family</h2>
@@ -3737,7 +3742,6 @@ function MoreScreen() {
     </div>
     <h2 className="morehd">Do together</h2>
     <div className="tiles">
-      ${callSupported() && html`<${Tile} icon="📹" label="Video chat" sub="Talk face to face" onClick=${function () { setStartCall(true); }} />`}
       <${Tile} icon="📊" label="Polls" sub="Ask the family" onClick=${function () { push({ name: "polls" }); }} />
       <${Tile} icon="💌" label="Time capsules" sub="Letters for later" onClick=${function () { push({ name: "capsules" }); }} />
       <${Tile} icon="🕵️" label="Guess who?" sub="A family game" onClick=${function () { push({ name: "guesswho" }); }} />
@@ -3753,7 +3757,6 @@ function MoreScreen() {
       ${admin && html`<${Tile} icon="🛠️" label="Manage" sub=${pendingCount > 0 ? pendingCount + " waiting to join" : "Organizer tools"} dot=${pendingCount > 0} onClick=${function () { push({ name: "organizer" }); }} />`}
     </div>
     <div style=${{ height: "1rem" }}></div>
-    ${startCall && html`<${StartCallSheet} onClose=${function () { setStartCall(false); }} />`}
   </div>`;
 }
 
@@ -3840,12 +3843,31 @@ const SQL_HINT = "The database needs its latest update first (run schema.sql in 
 function missingTable(e) { return /relation|does not exist|schema cache|column|function/i.test((e && e.message) || ""); }
 
 /* Per-type switches and quiet hours, saved to your profile. The notification service reads them before it sends. */
+function TimeShareToggle() {
+  const { me, toast, reloadMe, reloadProfiles } = useApp();
+  const n = me.notif && typeof me.notif === "object" ? me.notif : {};
+  const priv = !!n.tzPrivate;
+  async function flip() {
+    const z = myTimeZone();
+    const nn = Object.assign({}, n, { tzPrivate: !priv });
+    if (z) nn.tz = z;
+    const r = await sb.from("profiles").update({ notif: nn, tz: nn.tzPrivate ? null : (z || null) }).eq("id", me.id);
+    if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
+    await reloadMe(); reloadProfiles();
+    toast(nn.tzPrivate ? "Family can no longer see your local time." : "Family can see your local time on your profile.");
+  }
+  return html`<div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}><div className="grow"><div style=${{ fontWeight: 600 }}>Show my local time</div><div className="muted" style=${{ fontSize: ".8rem" }}>Family sees what time it is where you are, on your profile. Quiet hours still work if you turn this off.</div></div>
+    <button role="switch" aria-checked=${!priv} aria-label="Show my local time" className=${"switch " + (!priv ? "on" : "")} onClick=${flip}><i></i></button></div>`;
+}
 function NotifPrefs() {
   const { me, toast, reloadMe } = useApp();
   const [n, setN] = useState(me.notif && typeof me.notif === "object" ? me.notif : {});
   const q = n.quiet || { on: false, from: 22, to: 7 };
   async function save(next) {
     const prev = n;
+    const keep = me.notif && typeof me.notif === "object" ? me.notif : {};
+    if (keep.tz !== undefined) next.tz = keep.tz;
+    if (keep.tzPrivate !== undefined) next.tzPrivate = keep.tzPrivate;
     setN(next);
     const r = await sb.from("profiles").update({ notif: next }).eq("id", me.id);
     if (r.error) { setN(prev); toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
@@ -3993,9 +4015,8 @@ function PollsScreen() {
     ${adding && html`<${NewPollSheet} onClose=${function () { setAdding(false); }} onDone=${P.reload} />`}
   </div>`;
 }
-function HomePoll() {
+function HomePoll({ P }) {
   const { push } = useApp();
-  const P = usePolls(5);
   if (!P.polls || P.err) return null;
   const p = P.polls.find(function (x) { return !pollClosed(x) && Date.now() - new Date(x.created_at).getTime() < 14 * 86400000; });
   if (!p) return null;
@@ -4121,12 +4142,19 @@ function useChatUnread() {
 }
 function ChatList({ root }) {
   const { me, profiles, groupNames, back, push } = useApp();
+  const [startCall, setStartCall] = useState(false);
   const C = useChatRooms();
   const latest = {};
   (C.rows || []).forEach(function (m) { latest[chatKey(m.group_id)] = m; });
   const rooms = [{ key: "all", name: "Everyone", sub: "The whole Inner Circle" }].concat(Object.keys(groupNames || {}).map(function (id) { return { key: id, name: groupNames[id], sub: "Group" }; }));
   return html`<div><${Bar} root=${root} title="Chat" back=${back} />
     <div style=${{ padding: ".5rem 0" }}>
+      ${callSupported() && html`<button className="listrow" style=${{ borderBottom: "1px solid var(--soft)" }} onClick=${function () { setStartCall(true); }}>
+        <div className="chatav" aria-hidden="true">📹</div>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Video chat</div><div className="muted" style=${{ fontSize: ".85rem" }}>Talk face to face with family</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>`}
+      ${startCall && html`<${StartCallSheet} onClose=${function () { setStartCall(false); }} />`}
       ${C.missing && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Chat is not set up yet. The organizer needs to run the latest SQL.</div>`}
       ${!C.missing && rooms.map(function (r) {
         const m = latest[r.key];
@@ -4172,15 +4200,15 @@ function ChatRoom({ gid }) {
     window.addEventListener("scroll", onScroll, { passive: true });
     return function () { window.removeEventListener("scroll", onScroll); };
   }, []);
-  async function send(e) {
-    if (e) e.preventDefault();
-    const body = text.trim();
+  function send(e) { if (e) e.preventDefault(); return post(text.trim()); }
+  async function post(body) {
     if (!body || busy) return;
     setBusy(true);
     const r = await sb.from("chat_messages").insert({ group_id: room, author_id: me.id, body: body }).select("*").single();
     setBusy(false);
     if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
     setText("");
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch (e2) {}
     nearEnd.current = true;
     setMsgs(function (old) { return (old || []).concat([r.data]); });
     lsSet("ic-chat-seen-" + chatKey(room), r.data.created_at);
@@ -4197,7 +4225,8 @@ function ChatRoom({ gid }) {
   return html`<div><${TopBar} title=${title} back=${back} />
     <div className="chatlist" aria-live="polite">
       ${msgs === null && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
-      ${msgs && msgs.length === 0 && html`<div className="center muted" style=${{ padding: "3rem 1.5rem" }}>No messages yet. Say hello to ${room ? "the group" : "the family"}.</div>`}
+      ${msgs && msgs.length === 0 && html`<div className="center muted" style=${{ padding: "3rem 1.5rem" }}><div style=${{ fontSize: "1.6rem" }} aria-hidden="true">💬</div><div style=${{ margin: ".3rem 0 .8rem" }}>No messages yet. Say hello to ${room ? "the group" : "the family"}.</div>
+        <div className="qr">${["👋", "❤️", "😂", "🎉"].map(function (q) { return html`<button key=${q} aria-label=${"Send " + q} onClick=${function () { post(q); }}>${q}</button>`; })}</div></div>`}
       ${(msgs || []).map(function (m) {
         const mine = m.author_id === me.id;
         const day = new Date(m.created_at).toDateString();
@@ -4407,14 +4436,14 @@ function HelpScreen() {
         <p>Use <b>Your day</b> at the top of Home for quick moments that last a day.</p>
       </div>`)}
       ${sec("Video chat", false, html`<div>
-        <p>Open <b>More</b>, then <b>Video chat</b>. Up to 4 people can be in one room. Allow the camera and microphone when your phone asks, use Wi-Fi if you can, and keep your screen on, because a locked phone drops out of the call.</p>
+        <p>Open <b>Chat</b>, then <b>Video chat</b>. Up to 4 people can be in one room. Allow the camera and microphone when your phone asks, use Wi-Fi if you can, and keep your screen on, because a locked phone drops out of the call.</p>
         <p>If you can join but cannot see or hear someone, ask them to leave and rejoin, or try on Wi-Fi.</p>
       </div>`)}
       ${sec("Chat, polls and time capsules", false, html`<div>
         <p><b>Family chat:</b> tap <b>Chat</b> at the bottom. "Everyone" is the whole Inner Circle; each of your groups has its own room. Messages are text and emoji. Tap a message to delete your own. Organizers can delete any message.</p>
         <p><b>Polls:</b> More, then Polls. Tap a choice to vote, tap it again to take your vote back. Everyone can see who voted for what.</p>
         <p><b>Time capsules:</b> More, then Time capsules. A letter stays hidden from everyone but you until the day you choose, then the people it is for get a notification. You can delete a letter before it opens. As with everything stored here, whoever runs the app has technical access.</p>
-        <p>Your time zone is saved automatically so family can see your local time on your profile.</p>
+        <p>Your time zone is saved automatically so family can see your local time on your profile. You can turn that off in Settings (Show my local time); the app still keeps it privately so quiet hours work.</p>
       </div>`)}
       ${sec("Leaving, or removing something", false, html`<div>
         <p>You can delete your own posts (from the ••• menu on the post) and your own comments (tap Delete under them). To leave Inner Circle, or to have everything you shared removed, ask an organizer.</p>
@@ -4670,6 +4699,7 @@ function Settings() {
         <button role="switch" aria-checked=${pushOn} aria-label="Notifications" disabled=${pushBusy || pushNeedsInstall()} className=${"switch " + (pushOn ? "on" : "")} onClick=${togglePush}><i></i></button>
       </div>
       ${pushOn && html`<${NotifPrefs} />`}
+      <${TimeShareToggle} />
       ${pushErr && html`<div role="alert" style=${{ margin: "0 1rem .8rem", padding: ".7rem .9rem", borderRadius: ".7rem", background: "#ffe1d8", color: "#7a2a10", fontSize: ".85rem" }}>${pushErr}</div>`}`}
       <div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Larger text</div><div className="muted" style=${{ fontSize: ".8rem" }}>Bigger words and buttons</div></div>
@@ -5176,9 +5206,14 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
   /* remember my time zone so family can see my local time and quiet hours work */
   useEffect(function () {
     const z = myTimeZone();
-    if (!z || me.tz === z) return;
-    sb.from("profiles").update({ tz: z }).eq("id", me.id).then(function (r) { if (!r.error) { reloadMe(); loadProfiles(); } }).catch(function () {});
-  }, [me.id, me.tz]);
+    if (!z) return;
+    const n = me.notif && typeof me.notif === "object" ? me.notif : {};
+    const patch = {};
+    if (n.tzPrivate) { if (me.tz) patch.tz = null; if (n.tz !== z) patch.notif = Object.assign({}, n, { tz: z }); }   /* private: family cannot see it; only the notification service uses it for quiet hours */
+    else if (me.tz !== z) patch.tz = z;
+    if (!Object.keys(patch).length) return;
+    sb.from("profiles").update(patch).eq("id", me.id).then(function (r) { if (!r.error) { reloadMe(); loadProfiles(); } }).catch(function () {});
+  }, [me.id, me.tz, me.notif && me.notif.tz, me.notif && me.notif.tzPrivate]);
 
   const bump = useCallback(function () { setTick(function (t) { return t + 1; }); }, []);
   useEffect(function () {   /* keep this phone's notification address fresh */

@@ -94,7 +94,7 @@ Full click-by-click steps are in [`SETUP.md`](SETUP.md). In short:
 - The free Supabase plan includes 1 GB of storage. The organizer screen shows usage.
 
 ## Help inside the app
-Settings has a "Help and privacy" page that explains who can see what and how to fix common problems. Keep it accurate if you change how the app stores or shares data.
+More has a "Help and privacy" page that explains who can see what and how to fix common problems. Keep it accurate if you change how the app stores or shares data.
 
 ## Releasing an update
 
