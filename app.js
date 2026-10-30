@@ -540,6 +540,17 @@ const EMOJI = [
 ].map(function (c) { return { name: c[0], list: Array.from(new Set(c[1].split(" ").filter(Boolean))) }; });
 
 /* GIF search (GIPHY). Needs a free key in config.js as GIPHY_KEY; without one the GIF buttons just open the phone's files. */
+/* Picks a small preview and a download version (kept under the upload limits) from whatever sizes GIPHY sends. */
+function gifParts(g) {
+  const im = (g && g.images) || {};
+  const url = function (k) { return im[k] && im[k].url ? im[k] : null; };
+  const th = url("fixed_width_small") || url("fixed_width") || url("fixed_height_small") || url("fixed_height") || url("downsized_small") || url("preview_gif");
+  const cand = ["downsized", "downsized_medium", "fixed_width", "fixed_height", "original"].map(url).filter(Boolean)
+    .filter(function (x) { return !x.size || Number(x.size) <= 4.5 * 1048576; });
+  const full = cand[0];
+  if (!th || !full) return null;
+  return { id: g.id, title: g.title || "", thumb: th.url, full: full.url };
+}
 const GIPHY_API = "https://api.giphy.com/v1/gifs/";
 function GifSearchSheet({ onPick, onUpload, onClose }) {
   const { toast } = useApp();
@@ -554,12 +565,13 @@ function GifSearchSheet({ onPick, onUpload, onClose }) {
     try {
       const o = append ? off.current : 0;
       const url = GIPHY_API + (term ? "search" : "trending") + "?api_key=" + encodeURIComponent(cfg.GIPHY_KEY) + (term ? "&q=" + encodeURIComponent(term) : "") +
-        "&limit=24&offset=" + o + "&rating=g&lang=en&bundle=messaging_non_clips";
+        "&limit=24&offset=" + o + "&rating=g&lang=en";
       const r = await fetch(url);
       if (!r.ok) throw new Error(String(r.status));
       const j = await r.json();
       const got = j.data || [];
-      const list = got.filter(function (g) { return g.images && g.images.fixed_width_small && g.images.downsized; });
+      const list = got.map(gifParts).filter(Boolean);
+      if (got.length && !list.length) throw new Error("format");
       off.current = o + got.length;
       setItems(function (cur) { return append && cur ? cur.concat(list) : list; });
       setMore(got.length >= 24);
@@ -567,6 +579,7 @@ function GifSearchSheet({ onPick, onUpload, onClose }) {
       const m = String((e && e.message) || "");
       setErr(m === "429" ? "GIF search is busy right now. Try again in a little while, or upload one from your phone."
         : m === "401" || m === "403" ? "GIF search is not set up correctly (the key was refused). Upload one from your phone for now."
+        : m === "format" ? "GIF search sent back something unexpected. Upload one from your phone for now."
         : "Could not reach GIF search. Check your internet, or upload one from your phone.");
       setItems(function (cur) { return cur || []; });
     }
@@ -579,7 +592,7 @@ function GifSearchSheet({ onPick, onUpload, onClose }) {
     if (busyId) return;
     setBusyId(g.id);
     try {
-      const r = await fetch(g.images.downsized.url);
+      const r = await fetch(g.full);
       if (!r.ok) throw new Error("download");
       const blob = await r.blob();
       const f = new File([blob], "gif-" + g.id + ".gif", { type: "image/gif" });
@@ -598,7 +611,7 @@ function GifSearchSheet({ onPick, onUpload, onClose }) {
     ${items && items.length === 0 && !err && html`<div className="center muted" style=${{ padding: "1.5rem" }}>No GIFs found. Try another word.</div>`}
     <div className="gifgrid">${(items || []).map(function (g) {
       return html`<button key=${g.id} className=${"gifcell" + (busyId === g.id ? " busy" : "")} disabled=${!!busyId} aria-label=${"Use GIF: " + (g.title || "animated GIF")} onClick=${function () { choose(g); }}>
-        <img src=${g.images.fixed_width_small.url} alt="" loading="lazy" /></button>`;
+        <img src=${g.thumb} alt="" loading="lazy" /></button>`;
     })}</div>
     ${more && html`<button className="btn grey block" style=${{ marginTop: ".6rem" }} onClick=${function () { load(q.trim(), true); }}>Show more</button>`}
     <div className="muted" style=${{ fontSize: ".75rem", textAlign: "center", marginTop: ".7rem" }}>Powered by GIPHY. Only G-rated GIFs are shown.</div>
