@@ -4124,6 +4124,24 @@ function CapsuleScreen() {
 }
 
 /* ---------- family chat ---------- */
+/* Hears about chat messages the instant they are written. Returns true while the live connection is up (the screens still check now and then as a backup). */
+function useChatLive(onChange) {
+  const ref = useRef(onChange);
+  ref.current = onChange;
+  const [live, setLive] = useState(false);
+  useEffect(function () {
+    let ch = null;
+    try {
+      ch = sb.channel("chat:" + Math.random().toString(36).slice(2), { config: { private: true } });
+      ["INSERT", "DELETE"].forEach(function (ev) {
+        ch.on("postgres_changes", { event: ev, schema: "public", table: "chat_messages" }, function (p) { ref.current({ type: ev, row: (ev === "INSERT" ? p.new : p.old) || {} }); });
+      });
+      ch.subscribe(function (st) { setLive(st === "SUBSCRIBED"); });
+    } catch (e) { setLive(false); }
+    return function () { try { if (ch) sb.removeChannel(ch); } catch (e) {} };
+  }, []);
+  return live;
+}
 function chatKey(gid) { return gid || "all"; }
 function chatSeen(gid) { return lsGet("ic-chat-seen-" + chatKey(gid), ""); }
 function useChatRooms() {
@@ -4136,6 +4154,7 @@ function useChatRooms() {
     setRows(r.data || []);
   }, []);
   useEffect(function () { load(); }, [load, tick]);
+  useChatLive(function () { load(); });
   return { rows: rows, missing: missing, reload: load };
 }
 function useChatUnread() {
@@ -4192,11 +4211,21 @@ function ChatRoom({ gid }) {
     setMsgs(function (old) { return old && old.length === list.length && old.length && old[old.length - 1].id === list[list.length - 1].id ? old : list; });
     if (list.length) { lsSet("ic-chat-seen-" + chatKey(room), list[list.length - 1].created_at); }
   }, [room]);
+  const live = useChatLive(function (ev) {
+    const r = ev.row || {};
+    if (ev.type === "INSERT") {
+      if ((r.group_id || null) !== room) return;
+      nearEnd.current = nearEnd.current || r.author_id === me.id;
+      setMsgs(function (old) { return old && old.some(function (x) { return x.id === r.id; }) ? old : (old || []).concat([r]); });
+      if (r.created_at) lsSet("ic-chat-seen-" + chatKey(room), r.created_at);
+    } else if (r.id) setMsgs(function (old) { return old ? old.filter(function (x) { return x.id !== r.id; }) : old; });
+  });
   useEffect(function () {
     load();
-    const t = setInterval(function () { if (!document.hidden) load(); }, 3000);
-    return function () { clearInterval(t); bump(); };
-  }, [load]);
+    const t = setInterval(function () { if (!document.hidden) load(); }, live ? 20000 : 3000);   /* a slow backup check while the live connection is up */
+    return function () { clearInterval(t); };
+  }, [load, live]);
+  useEffect(function () { return function () { bump(); }; }, []);
   useEffect(function () { if (nearEnd.current && bottom.current && bottom.current.scrollIntoView) bottom.current.scrollIntoView({ block: "end" }); }, [msgs && msgs.length, kb]);
   useEffect(function () {
     function onScroll() { nearEnd.current = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160; }
