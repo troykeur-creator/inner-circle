@@ -1,6 +1,6 @@
 // Tiny service worker: lets Inner Circle open instantly and keeps the app shell available offline.
 // Photos and family data are never cached here; they always come fresh from your private database.
-const CACHE = "inner-circle-v33";
+const CACHE = "inner-circle-v35";
 const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.json", "icon.svg",
   "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
@@ -58,7 +58,10 @@ self.addEventListener("push", (e) => {
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-    for (const c of list) { if ("focus" in c) return c.focus(); }
-    return self.clients.openWindow((e.notification.data && e.notification.data.url) || "./");
+    const url = (e.notification.data && e.notification.data.url) || "./";
+    for (const c of list) {
+      if ("focus" in c) return c.focus().then((cl) => (cl && url !== "./" && "navigate" in cl ? cl.navigate(url) : cl));
+    }
+    return self.clients.openWindow(url);
   }));
 });

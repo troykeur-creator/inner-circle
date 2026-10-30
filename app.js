@@ -211,10 +211,11 @@ function inviteLink(code) { return location.origin + location.pathname + "?invit
 function inviteFromUrl() {
   try { return (new URLSearchParams(location.search).get("invite") || "").trim(); } catch (e) { return ""; }
 }
-async function sendInviteText(code, fromName, days) {
+async function sendInviteText(code, fromName, days, byMember) {
   const link = inviteLink(code);
   const text = (fromName ? fromName + " invited you to" : "You are invited to") +
     " Inner Circle, a private space for family and close friends. Tap the link to join (your invite code is filled in for you). It works once and expires in " + (days || 7) + " days. If it asks, the code is " + code + "." +
+    (byMember ? " The family organizer approves every new person, so there may be a short wait after you sign up." : "") +
     " After you join, put it on your home screen. iPhone: open the link in Safari, tap the Share button, then Add to Home Screen. Android: tap Install when it asks.";
   if (navigator.share) {
     try { await navigator.share({ title: "Join Inner Circle", text: text, url: link }); return "shared"; }
@@ -851,6 +852,459 @@ function PostCard({ post, onChange, albumId }) {
     </article>`;
 }
 
+/* =====================  video chat (rooms of up to 4, phone to phone)  ===================== */
+const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }].concat(Array.isArray(cfg.ICE_SERVERS) ? cfg.ICE_SERVERS : []);
+const MAX_CALL = 4;
+function callSupported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection); }
+
+function useOpenCalls() {
+  const { me, tick } = useApp();
+  const [calls, setCalls] = useState([]);
+  useEffect(function () {
+    const since = new Date(Date.now() - 3 * 3600000).toISOString();
+    sb.from("calls").select("*").is("ended_at", null).gte("created_at", since).order("created_at", { ascending: false })
+      .then(function (r) {
+        setCalls((r.data || []).filter(function (c) { return !(c.invited || []).length || c.host_id === me.id || c.invited.indexOf(me.id) >= 0; }));
+      }).catch(function () { setCalls([]); });
+  }, [tick, me.id]);
+  return calls;
+}
+
+function CallBanner() {
+  const { profiles, push, me } = useApp();
+  const calls = useOpenCalls();
+  if (!calls.length || !callSupported()) return null;
+  return html`<div>${calls.slice(0, 2).map(function (c) {
+    return html`<div key=${c.id} className="pcard slim callbanner">
+      <div className="grow"><div className="pk">📹 Video chat is on</div>
+        <div className="pt">${c.host_id === me.id ? "Your room" : nm(profiles[c.host_id])}${c.title ? " · " + c.title : ""}</div>
+        <div className="muted" style=${{ fontSize: ".75rem" }}>${"Started " + agoLong(c.created_at)}</div></div>
+      <button className="btn sm" onClick=${function () { push({ name: "call", id: c.id }); }}>${c.host_id === me.id ? "Rejoin" : "Join"}</button>
+    </div>`;
+  })}</div>`;
+}
+
+function StartCallSheet({ onClose }) {
+  const { me, profiles, push, toast } = useApp();
+  const [title, setTitle] = useState("");
+  const [who, setWho] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const others = approvedOthers(profiles, me);
+  function toggle(id) { setWho(function (w) { return w.indexOf(id) >= 0 ? w.filter(function (x) { return x !== id; }) : w.length >= 3 ? w : w.concat([id]); }); }
+  async function go() {
+    setBusy(true);
+    const r = await sb.from("calls").insert({ host_id: me.id, title: title.trim(), invited: who }).select("id").single();
+    setBusy(false);
+    if (r.error || !r.data) { toast(/relation|does not exist|schema cache/i.test((r.error && r.error.message) || "") ? "Video chat is not set up yet. The organizer needs to run the latest SQL." : ((r.error && r.error.message) || "Could not start the chat.")); return; }
+    onClose();
+    push({ name: "call", id: r.data.id });
+  }
+  return html`<${Sheet} title="Start a video chat" onClose=${onClose}>
+    <p className="muted" style=${{ marginTop: 0 }}>Up to 4 people can be on at once. Everyone you ring gets a notification. Nothing is recorded.</p>
+    <label htmlFor="call-title" style=${{ fontWeight: 600 }}>What is it about? (optional)</label>
+    <input id="call-title" className="field" style=${{ marginTop: ".3rem" }} maxLength="60" placeholder="Example: Sunday catch-up" value=${title} onChange=${function (e) { setTitle(e.target.value); }} />
+    <div style=${{ fontWeight: 600, margin: "1rem 0 .4rem" }}>Who should we ring?</div>
+    <div className="chips"><button type="button" className=${"chip pick" + (who.length === 0 ? " on" : "")} aria-pressed=${who.length === 0} onClick=${function () { setWho([]); }}>Everyone</button></div>
+    <div className="muted" style=${{ fontSize: ".8rem", margin: ".5rem 0 .3rem" }}>Or pick up to 3 people:</div>
+    <div className="chips">${others.map(function (p) {
+      const on = who.indexOf(p.id) >= 0;
+      return html`<button type="button" key=${p.id} className=${"chip love" + (on ? " on" : "")} aria-pressed=${on} onClick=${function () { toggle(p.id); }}>${nm(p)}</button>`;
+    })}</div>
+    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${go}>${busy ? "One moment..." : "Start and ring"}</button></div>
+  </${Sheet}>`;
+}
+
+function CallVideo({ stream, muted, mirror }) {
+  const ref = useRef(null);
+  useEffect(function () {
+    const v = ref.current;
+    if (!v) return;
+    v.muted = !!muted;
+    if (v.srcObject !== (stream || null)) v.srcObject = stream || null;
+    if (stream) { const p = v.play(); if (p && p.catch) p.catch(function () {}); }
+  }, [stream, muted]);
+  return html`<video ref=${ref} autoPlay playsInline className=${mirror ? "mirror" : ""} />`;
+}
+
+function CallScreen({ id }) {
+  const { me, profiles, back, toast } = useApp();
+  const [call, setCall] = useState(undefined);
+  const [phase, setPhase] = useState("lobby");     /* lobby | live */
+  const [tiles, setTiles] = useState({});          /* person -> their video stream */
+  const [conn, setConn] = useState({});            /* person -> connecting | connected | failed */
+  const [meta, setMeta] = useState({});            /* person -> { mic, cam } */
+  const [mic, setMic] = useState(true);
+  const [cam, setCam] = useState(true);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [stream, setStream] = useState(null);
+  const R = useRef({ peers: {}, early: {}, local: null, ch: null, facing: "user", live: false, wake: null });
+
+  useEffect(function () {
+    let gone = false;
+    sb.from("calls").select("*").eq("id", id).maybeSingle().then(function (r) { if (!gone) setCall(r.data || null); }).catch(function () { if (!gone) setCall(null); });
+    return function () { gone = true; };
+  }, [id]);
+
+  function send(to, kind, data) {
+    const ch = R.current.ch;
+    if (ch) ch.send({ type: "broadcast", event: "sig", payload: { from: me.id, to: to, kind: kind, data: data } });
+  }
+  function closePeer(k) {
+    const p = R.current.peers[k];
+    if (!p) return;
+    delete R.current.peers[k];
+    p.pc.onicecandidate = null; p.pc.ontrack = null; p.pc.onconnectionstatechange = null; p.pc.onnegotiationneeded = null;
+    try { p.pc.close(); } catch (e) {}
+  }
+  function dropPeer(k) {
+    closePeer(k);
+    setTiles(function (t) { const n = Object.assign({}, t); delete n[k]; return n; });
+    setConn(function (t) { const n = Object.assign({}, t); delete n[k]; return n; });
+  }
+  function makePeer(k, offerer, gen) {
+    const r = R.current;
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const peer = { pc: pc, pend: [], gen: gen || (offerer ? Date.now() : 0), offerer: offerer };
+    r.peers[k] = peer;
+    const local = r.local;
+    local.getTracks().forEach(function (t) { pc.addTrack(t, local); });
+    if (!local.getVideoTracks().length) { try { pc.addTransceiver("video", { direction: "recvonly" }); } catch (e) {} }
+    pc.onicecandidate = function (e) { if (e.candidate) send(k, "cand", { c: e.candidate.toJSON(), gen: peer.gen }); };
+    pc.ontrack = function (e) { const s = e.streams && e.streams[0]; if (s) setTiles(function (t) { const n = Object.assign({}, t); n[k] = s; return n; }); };
+    pc.onconnectionstatechange = function () {
+      if (r.peers[k] !== peer) return;
+      const st = pc.connectionState;
+      setConn(function (c) { const n = Object.assign({}, c); n[k] = st === "connected" ? "connected" : st === "failed" ? "failed" : "connecting"; return n; });
+      if (st === "failed" && peer.offerer) {   /* the older side starts over with a fresh connection */
+        closePeer(k);
+        if (r.live) makePeer(k, true);
+      }
+    };
+    if (offerer) {
+      pc.onnegotiationneeded = async function () {
+        try {
+          const o = await pc.createOffer();
+          await pc.setLocalDescription(o);
+          send(k, "offer", { sdp: pc.localDescription, gen: peer.gen });
+        } catch (e) {}
+      };
+    }
+    setConn(function (c) { const n = Object.assign({}, c); n[k] = "connecting"; return n; });
+    return peer;
+  }
+  async function addCand(peer, c) {
+    if (!peer.pc.remoteDescription) { peer.pend.push(c); return; }
+    try { await peer.pc.addIceCandidate(c); } catch (e) {}
+  }
+  async function flush(peer) {
+    const q = peer.pend.splice(0);
+    for (const c of q) { try { await peer.pc.addIceCandidate(c); } catch (e) {} }
+  }
+  async function onSignal(m) {
+    if (!m || m.to !== me.id || !R.current.live) return;
+    const k = m.from;
+    const d = m.data || {};
+    let peer = R.current.peers[k];
+    try {
+      if (m.kind === "offer") {
+        if (!peer || peer.gen !== d.gen) { if (peer) closePeer(k); peer = makePeer(k, false, d.gen); }
+        await peer.pc.setRemoteDescription(d.sdp);
+        const early = (R.current.early[k] || []).filter(function (x) { return x.gen === d.gen; });
+        R.current.early[k] = [];
+        early.forEach(function (x) { peer.pend.push(x.c); });
+        await flush(peer);
+        const a = await peer.pc.createAnswer();
+        await peer.pc.setLocalDescription(a);
+        send(k, "answer", { sdp: peer.pc.localDescription, gen: d.gen });
+      } else if (m.kind === "answer") {
+        if (peer && peer.gen === d.gen && peer.pc.signalingState === "have-local-offer") { await peer.pc.setRemoteDescription(d.sdp); await flush(peer); }
+      } else if (m.kind === "cand") {
+        if (peer && peer.gen === d.gen) await addCand(peer, d.c);
+        else (R.current.early[k] = R.current.early[k] || []).push({ gen: d.gen, c: d.c });
+      }
+    } catch (e) {}
+  }
+  function syncPeers() {
+    const r = R.current;
+    if (!r.ch || !r.live) return;
+    const st = r.ch.presenceState();
+    const keys = Object.keys(st);
+    const mm = {};
+    keys.forEach(function (k) { const x = (st[k] || [])[0] || {}; mm[k] = { mic: x.mic !== false, cam: x.cam !== false, at: x.at || 0 }; });
+    setMeta(mm);
+    if (keys.length > MAX_CALL) {   /* a fifth person: the latest arrival steps out */
+      const order = keys.slice().sort(function (a, b) { return (mm[a].at - mm[b].at) || (a < b ? -1 : 1); });
+      if (order.indexOf(me.id) >= MAX_CALL) { toast("This chat is full (" + MAX_CALL + " people)."); leave(false, true); return; }
+    }
+    keys.forEach(function (k) {
+      if (k !== me.id && !r.peers[k]) makePeer(k, me.id < k);
+    });
+    Object.keys(r.peers).forEach(function (k) { if (keys.indexOf(k) < 0) dropPeer(k); });
+  }
+  function announce(over) {
+    const r = R.current;
+    if (!r.ch) return;
+    const l = r.local;
+    const a = l && l.getAudioTracks()[0];
+    const v = l && l.getVideoTracks()[0];
+    r.ch.track(Object.assign({ at: r.joinedAt, mic: a ? a.enabled : false, cam: v ? v.enabled : false }, over || {}));
+  }
+
+  async function join(withVideo) {
+    if (busy) return;
+    setBusy(true); setErr("");
+    const r = R.current;
+    let s;
+    try {
+      s = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+        video: withVideo ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } } : false
+      });
+    } catch (e) {
+      const n = e && e.name;
+      setErr(n === "NotAllowedError" || n === "SecurityError" ? "Your camera or microphone is blocked. Allow it for this app in your phone or browser settings, then try again."
+        : n === "NotFoundError" || n === "OverconstrainedError" ? "No " + (withVideo ? "camera" : "microphone") + " was found on this device."
+        : "Could not start your camera or microphone. Close other apps that use it and try again.");
+      setBusy(false);
+      return;
+    }
+    r.local = s;
+    r.live = true;
+    r.joinedAt = Date.now();
+    setStream(s);
+    setMic(true); setCam(s.getVideoTracks().length > 0);
+    try { if (navigator.wakeLock) r.wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+    const ch = sb.channel("call:" + id, { config: { private: true, broadcast: { self: false }, presence: { key: me.id } } });
+    r.ch = ch;
+    ch.on("broadcast", { event: "sig" }, function (m) { onSignal(m && m.payload); });
+    ch.on("broadcast", { event: "end" }, function () { toast("The host ended this chat."); leave(false, true); });
+    ch.on("presence", { event: "sync" }, syncPeers);
+    ch.subscribe(function (status) {
+      if (status === "SUBSCRIBED") { setPhase("live"); announce(); }
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setErr("Could not connect the chat. Check your internet. If this keeps happening, the organizer needs to run the latest SQL (Round 9).");
+        cleanup();
+        setPhase("lobby");
+      }
+    });
+    setBusy(false);
+  }
+  function cleanup() {
+    const r = R.current;
+    r.live = false;
+    Object.keys(r.peers).forEach(closePeer);
+    if (r.local) { r.local.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); r.local = null; }
+    if (r.ch) { try { r.ch.untrack(); } catch (e) {} try { sb.removeChannel(r.ch); } catch (e) {} r.ch = null; }
+    if (r.wake) { try { r.wake.release(); } catch (e) {} r.wake = null; }
+    setStream(null); setTiles({}); setConn({}); setMeta({});
+  }
+  async function leave(endForAll, quiet) {
+    const r = R.current;
+    let alone = true;
+    try { if (r.ch) alone = Object.keys(r.ch.presenceState()).filter(function (k) { return k !== me.id; }).length === 0; } catch (e) {}
+    if (endForAll && r.ch) { try { await r.ch.send({ type: "broadcast", event: "end", payload: {} }); } catch (e) {} }
+    cleanup();
+    if (endForAll || alone) { try { await sb.from("calls").update({ ended_at: new Date().toISOString() }).eq("id", id); } catch (e) {} }
+    back();
+  }
+  useEffect(function () {
+    function bye() { cleanup(); }
+    window.addEventListener("pagehide", bye);
+    return function () { window.removeEventListener("pagehide", bye); cleanup(); };
+  }, []);
+  /* if the phone wakes up with the screen lock released, ask for it again */
+  useEffect(function () {
+    function vis() {
+      const r = R.current;
+      if (document.visibilityState === "visible" && r.live && navigator.wakeLock && !r.wake) navigator.wakeLock.request("screen").then(function (w) { r.wake = w; w.addEventListener("release", function () { r.wake = null; }); }).catch(function () {});
+    }
+    document.addEventListener("visibilitychange", vis);
+    return function () { document.removeEventListener("visibilitychange", vis); };
+  }, []);
+
+  function toggleMic() {
+    const l = R.current.local; if (!l) return;
+    const t = l.getAudioTracks()[0]; if (!t) return;
+    t.enabled = !t.enabled; setMic(t.enabled); announce();
+  }
+  function toggleCam() {
+    const l = R.current.local; if (!l) return;
+    const t = l.getVideoTracks()[0]; if (!t) return;
+    t.enabled = !t.enabled; setCam(t.enabled); announce();
+  }
+  async function flip() {
+    const r = R.current; if (!r.local) return;
+    const next = r.facing === "user" ? "environment" : "user";
+    try {
+      const ns = await navigator.mediaDevices.getUserMedia({ video: { facingMode: next, width: { ideal: 640 }, height: { ideal: 480 } } });
+      const nt = ns.getVideoTracks()[0];
+      const old = r.local.getVideoTracks()[0];
+      Object.keys(r.peers).forEach(function (k) {
+        r.peers[k].pc.getSenders().forEach(function (sd) { if (sd.track && sd.track.kind === "video") sd.replaceTrack(nt).catch(function () {}); });
+      });
+      if (old) { r.local.removeTrack(old); old.stop(); }
+      r.local.addTrack(nt);
+      r.facing = next;
+      setStream(new MediaStream(r.local.getTracks()));
+      setCam(true);
+      nt.enabled = true; announce();
+    } catch (e) { toast("Could not switch cameras."); }
+  }
+  async function share() {
+    const url = location.origin + location.pathname + "?call=" + encodeURIComponent(id);
+    const text = me.display_name + " is on a video chat in Inner Circle. Tap to join:";
+    try {
+      if (navigator.share) await navigator.share({ title: "Join the video chat", text: text, url: url });
+      else { await navigator.clipboard.writeText(text + " " + url); toast("Link copied. Paste it into a text."); }
+    } catch (e) {}
+  }
+
+  const ended = call && call.ended_at;
+  const host = call && profiles[call.host_id];
+  if (phase === "lobby") {
+    return html`<div><${TopBar} title="Video chat" back=${back} />
+      <div style=${{ padding: "1rem" }}>
+        ${call === undefined && html`<div className="center muted" style=${{ padding: "3rem" }}>One moment...</div>`}
+        ${call === null && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat is not here anymore.</div>`}
+        ${call && ended && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat has ended. You can start a new one from the People tab.</div>`}
+        ${call && !ended && !callSupported() && html`<div className="warnbox">This browser cannot do video chat. On an iPhone, open Inner Circle from the home screen icon or in Safari (iOS 16 or newer). On Android, use Chrome.</div>`}
+        ${call && !ended && callSupported() && html`<div className="knowcard" style=${{ margin: 0 }}>
+          <div style=${{ fontWeight: 700, fontSize: "1.1rem" }}>${call.host_id === me.id ? "Your video chat" : nm(host) + " is on a video chat"}</div>
+          ${call.title && html`<div style=${{ marginTop: ".2rem" }}>${call.title}</div>`}
+          <div className="muted" style=${{ fontSize: ".85rem", margin: ".6rem 0 1rem" }}>Your picture and sound go straight to the others on the call. Nothing is recorded or saved. Up to ${MAX_CALL} people at a time. Wi-Fi works best.</div>
+          <button className="btn block" style=${{ height: "3rem" }} disabled=${busy} onClick=${function () { join(true); }}>${busy ? "Starting..." : "Join with video"}</button>
+          <button className="sheetbtn" style=${{ textAlign: "center", marginTop: ".3rem" }} disabled=${busy} onClick=${function () { join(false); }}>Join with sound only</button>
+          ${err && html`<div className="warnbox" role="alert" style=${{ marginTop: ".6rem" }}>${err}</div>`}
+        </div>`}
+      </div></div>`;
+  }
+
+  const others = Object.keys(tiles).concat(Object.keys(conn).filter(function (k) { return !tiles[k]; }));
+  const n = others.length;
+  const amHost = call && call.host_id === me.id;
+  const camOff = function (k) { return meta[k] && meta[k].cam === false; };
+  const tile = function (k) {
+    return html`<div key=${k} className="calltile">
+      ${tiles[k] ? html`<${CallVideo} stream=${tiles[k]} />` : null}
+      ${(!tiles[k] || camOff(k)) && html`<div className="callnocam"><${Avatar} id=${k} name=${nm(profiles[k])} size=${72} /></div>`}
+      <div className="calllabel">${nm(profiles[k])}${meta[k] && meta[k].mic === false ? " 🔇" : ""}${conn[k] === "connecting" ? " · connecting..." : conn[k] === "failed" ? " · reconnecting..." : ""}</div>
+    </div>`;
+  };
+  const selfTile = html`<div className=${"calltile self" + (n === 1 ? " pip" : "")}>
+    <${CallVideo} stream=${stream} muted=${true} mirror=${R.current.facing === "user"} />
+    ${!cam && html`<div className="callnocam"><${Avatar} id=${me.id} name=${me.display_name} size=${n === 1 ? 36 : 72} /></div>`}
+    ${n !== 1 && html`<div className="calllabel">You${!mic ? " 🔇" : ""}</div>`}
+  </div>`;
+  return html`<div className="callwrap" role="region" aria-label="Video chat">
+    <div className=${"callgrid g" + Math.min(4, Math.max(1, n + (n === 1 ? 0 : 1)))}>
+      ${n === 0 && html`<div className="callwait"><div style=${{ fontSize: "1.1rem", fontWeight: 700 }}>Waiting for others...</div><div style=${{ opacity: .8, marginTop: ".3rem" }}>Tap the share button to invite someone.</div></div>`}
+      ${others.map(tile)}
+      ${n !== 1 ? selfTile : null}
+    </div>
+    ${n === 1 ? selfTile : null}
+    <div className="callbar">
+      <button className=${"cbtn" + (mic ? "" : " off")} aria-label=${mic ? "Mute microphone" : "Unmute microphone"} onClick=${toggleMic}>${mic ? "🎤" : "🔇"}</button>
+      ${stream && stream.getVideoTracks().length > 0 && html`<button className=${"cbtn" + (cam ? "" : " off")} aria-label=${cam ? "Turn camera off" : "Turn camera on"} onClick=${toggleCam}>${cam ? "📹" : "🚫"}</button>`}
+      ${stream && stream.getVideoTracks().length > 0 && html`<button className="cbtn" aria-label="Switch camera" onClick=${flip}>🔄</button>`}
+      <button className="cbtn" aria-label="Invite someone to this chat" onClick=${share}>➕</button>
+      <button className="cbtn hang" aria-label="Leave the chat" onClick=${function () { leave(false); }}>📞</button>
+    </div>
+    ${amHost && n > 0 && html`<button className="callend" onClick=${function () { if (confirm("End this chat for everyone?")) leave(true); }}>End for everyone</button>`}
+  </div>`;
+}
+
+/* =====================  daily pick + profile nudge (home)  ===================== */
+function dayNum() { return Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 86400000); }
+
+/* One quick this-or-that a day. After you pick, you see how the family voted. */
+function DailyPick() {
+  const { me, profiles, toast, reloadMe, reloadProfiles, push, tick } = useApp();
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(function () {
+    const mineDuel = getPrefs(me).duel;
+    const saved = lsGet("ic-pick", "");
+    try { const o = JSON.parse(saved); if (o && o.day === dayNum() && DUELS.some(function (d) { return d[0] === o.k; })) return o.k; } catch (e) {}
+    const open = DUELS.filter(function (d) { return !mineDuel[d[0]]; });
+    if (!open.length) return null;
+    const k = open[dayNum() % open.length][0];
+    lsSet("ic-pick", JSON.stringify({ day: dayNum(), k: k }));
+    return k;
+  });
+  useEffect(function () {
+    sb.from("profiles").select("id,prefs").eq("status", "approved").then(function (r) { setRows(r.data || []); }).catch(function () { setRows([]); });
+  }, [tick]);
+  if (!key) return null;
+  const d = DUELS.find(function (x) { return x[0] === key; });
+  const mineChoice = getPrefs(me).duel[key];
+  const votes = { a: [], b: [] };
+  let meIn = false;
+  (rows || []).forEach(function (r) {
+    const c = r.id === me.id ? mineChoice : getPrefs(r).duel[key];   /* always count my own latest answer */
+    if (r.id === me.id) meIn = true;
+    if (c === "a" || c === "b") votes[c].push(r.id);
+  });
+  if (!meIn && (mineChoice === "a" || mineChoice === "b")) votes[mineChoice].push(me.id);
+  const total = votes.a.length + votes.b.length;
+  async function pick(c) {
+    if (busy) return;
+    setBusy(true);
+    const cur = getPrefs(me);
+    const next = Object.assign({}, me.prefs || {}, { duel: Object.assign({}, cur.duel, (function () { const o = {}; o[key] = c; return o; })()) });
+    const r = await sb.from("profiles").update({ prefs: next }).eq("id", me.id);
+    if (r.error) toast(r.error.message || "Could not save that.");
+    else { await reloadMe(); reloadProfiles(); }
+    setBusy(false);
+  }
+  const side = function (c, label) {
+    const n = votes[c].length;
+    const on = mineChoice === c;
+    const pct = total ? Math.round(n * 100 / total) : 0;
+    return html`<button className=${"duelbtn" + (on ? " on" : "") + (mineChoice ? " shown" : "")} disabled=${busy || !!mineChoice} aria-pressed=${on} onClick=${function () { pick(c); }}>
+      ${mineChoice && html`<i className="duelfill" style=${{ width: pct + "%" }}></i>`}
+      <span className="duellab">${label}${on ? " ✓" : ""}</span>
+      ${mineChoice && html`<span className="duelpct">${n} · ${pct}%</span>`}
+    </button>`;
+  };
+  return html`<div className="dailypick">
+    <div className="pk">Today's pick${mineChoice && total > 1 ? " · " + total + " votes" : ""}</div>
+    <div className="duelrow">${side("a", d[1])}<span className="duelor">or</span>${side("b", d[2])}</div>
+    ${mineChoice ? html`<div className="muted" style=${{ fontSize: ".8rem", marginTop: ".5rem" }}>${total > 1 ? "Tap a name below to see who is on each side." : "You are first! The family's answers show up here."}</div>`
+      : html`<div className="muted" style=${{ fontSize: ".8rem", marginTop: ".5rem" }}>One tap. It also shows on your profile.</div>`}
+    ${mineChoice && total > 1 && html`<div className="duelwho">${["a", "b"].map(function (c) {
+      return html`<div key=${c}>${votes[c].slice(0, 6).map(function (id) { return html`<button key=${id} className="duelav" aria-label=${"Open profile"} onClick=${function () { push({ name: "profile", userId: id }); }}><${Avatar} id=${id} name=${nm(profiles[id])} size=${26} /></button>`; })}${votes[c].length > 6 ? html`<small className="muted"> +${votes[c].length - 6}</small>` : ""}</div>`;
+    })}</div>`}
+  </div>`;
+}
+
+/* A gentle one-line nudge toward the next thing that helps the family know you. It can be put off for a few days. */
+function ProfileNudge() {
+  const { me, push } = useApp();
+  const [snooze, setSnooze] = useState(Number(lsGet("ic-nudge-snooze", "0")) || 0);
+  const pr = prefsProgress(me);
+  const steps = [
+    { done: !!me.avatar_path, t: "Add a profile photo", d: "So the family sees your face, not just a letter.", go: { name: "settings" } },
+    { done: !!me.birth_month, t: "Add your birthday", d: "The family gets a reminder to wish you well.", go: { name: "settings" } },
+    { done: !!(me.bio || "").trim() && !!(me.relation || "").trim(), t: "Say a little about you", d: "A short bio and how you fit in the family.", go: { name: "settings" } },
+    { done: pr.done >= 5, t: "Answer 5 get-to-know-you questions", d: pr.done + " of 5 so far. They take seconds, and make gifts easy.", go: { name: "prefs" } },
+    { done: !!(me.theme && Object.keys(me.theme).length) || !!me.cover_path, t: "Make your page yours", d: "Pick a cover photo, colors and a song.", go: { name: "theme" } },
+    { done: pr.full, t: "Reach " + PREFS_GOAL + " answers", d: pr.done + " of " + PREFS_GOAL + ". Almost a full profile.", go: { name: "prefs" } }
+  ];
+  const left = steps.filter(function (x) { return !x.done; });
+  if (!left.length || Date.now() < snooze) return null;
+  const next = left[0];
+  const doneN = steps.length - left.length;
+  function later() { const t = Date.now() + 3 * 86400000; lsSet("ic-nudge-snooze", String(t)); setSnooze(t); }
+  return html`<div className="pcard slim nudge">
+    <div className="grow"><div className="pk">Your profile · ${doneN} of ${steps.length}</div>
+      <div className="pt">${next.t}</div><div className="muted" style=${{ fontSize: ".78rem" }}>${next.d}</div></div>
+    <div className="col" style=${{ display: "flex", flexDirection: "column", gap: ".2rem", alignItems: "stretch" }}>
+      <button className="btn sm" onClick=${function () { push(next.go); }}>Do it</button>
+      <button className="linkbtn" onClick=${later}>Later</button></div>
+  </div>`;
+}
+
 /* =====================  home (stories + feed)  ===================== */
 function GettingStarted({ hasPosts }) {
   const { me, push, openInvite } = useApp();
@@ -992,6 +1446,9 @@ function Home() {
       ${prompt && daysSince(prompt.created_at) < 14 && html`<${PromptCard} prompt=${prompt} answers=${answers} />`}
       ${noteSheet && html`<${NoteSheet} target=${noteSheet} onClose=${function () { setNoteSheet(null); }} onDone=${load} />`}
       <${PushAsk} />
+      <${CallBanner} />
+      <${DailyPick} />
+      <${ProfileNudge} />
       <${HomeCelebrate} />
       <${BackupReminder} />
       ${me.role === "admin" && memberCount <= 1 && posts && html`<${GettingStarted} hasPosts=${posts.length > 0} />`}
@@ -1443,33 +1900,74 @@ function HelloSheet({ userId, onClose }) {
   </${Sheet}>`;
 }
 
+/* Is this person allowed to invite? (the organizer can switch it off) */
+function useCanInvite() {
+  const { me } = useApp();
+  const [ok, setOk] = useState(me.role === "admin");
+  useEffect(function () {
+    if (me.role === "admin") { setOk(true); return; }
+    sb.rpc("members_may_invite").then(function (r) { setOk(!r.error && r.data === true); }).catch(function () { setOk(false); });
+  }, [me.role]);
+  return ok;
+}
+
 /* =====================  invite someone (one-time link)  ===================== */
 function InviteSheet({ onClose, existing }) {
   const { me, toast, bump } = useApp();
+  const isAdmin = me.role === "admin";
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mine, setMine] = useState([]);
+  const loadMine = useCallback(function () {
+    if (isAdmin || existing) return;
+    sb.from("invites").select("*").eq("created_by", me.id).is("used_at", null).gte("expires_at", new Date().toISOString()).order("created_at", { ascending: false })
+      .then(function (r) { setMine(r.data || []); }).catch(function () {});
+  }, [isAdmin, existing, me.id]);
+  useEffect(function () { loadMine(); }, [loadMine]);
   async function go() {
     setBusy(true);
     try {
       let code = existing && existing.code;
       let days = existing ? daysUntil(existing.expires_at) : 7;
+      const byMember = existing ? !!existing.member_invite : !isAdmin;
       if (!code) {
         code = randomCode();
-        const r = await sb.from("invites").insert({ code: code, label: label.trim(), created_by: me.id });
+        const row = { code: code, label: label.trim(), created_by: me.id };
+        if (!isAdmin) row.member_invite = true;
+        const r = await sb.from("invites").insert(row);
         if (r.error) throw r.error;
       }
-      const res = await sendInviteText(code, me.display_name, days);
+      const res = await sendInviteText(code, me.display_name, days, byMember);
       if (res === "copied") toast("Invite copied. Paste it into a text or email.");
       bump();
       onClose();
-    } catch (e) { toast((e && e.message) || "Could not create the invite."); }
+    } catch (e) {
+      const m = (e && e.message) || "";
+      toast(/row-level security/i.test(m) ? "Invites are turned off right now. Ask the organizer." : m || "Could not create the invite.");
+    }
     setBusy(false);
   }
+  async function cancelOne(inv) {
+    const r = await sb.from("invites").delete().eq("id", inv.id);
+    toast(r.error ? r.error.message : "Invite cancelled");
+    loadMine();
+  }
+  async function again(inv) {
+    const res = await sendInviteText(inv.code, me.display_name, daysUntil(inv.expires_at), true);
+    if (res === "copied") toast("Invite copied. Paste it into a text or email.");
+  }
   return html`<${Sheet} title="Invite someone you trust" onClose=${onClose}>
-    <p className="muted" style=${{ marginTop: 0 }}>This makes a private link that works once and expires in 7 days. You will pick Text, Email or any app next.</p>
-    ${!existing && html`<label htmlFor="inv-label" style=${{ fontWeight: 600 }}>Who is it for? (optional)</label>
-      <input id="inv-label" className="field" style=${{ marginTop: ".3rem" }} placeholder="Example: Aunt Maria" maxLength="60" value=${label} onChange=${function (e) { setLabel(e.target.value); }} />`}
-    <div className="row" style=${{ marginTop: ".9rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${go}>${busy ? "One moment..." : existing ? "Share again" : "Create and send"}</button></div>
+    <p className="muted" style=${{ marginTop: 0 }}>This makes a private link that works once and expires in 7 days. You will pick Text, Email or any app next.${isAdmin ? "" : " The organizer will welcome them before they can see anything."}</p>
+    ${!existing && html`<label htmlFor="inv-label" style=${{ fontWeight: 600 }}>Who is it for? ${isAdmin ? "(optional)" : "(so the organizer knows who they are)"}</label>
+      <input id="inv-label" className="field" style=${{ marginTop: ".3rem" }} placeholder="Example: Aunt Maria, my cousin" maxLength="60" value=${label} onChange=${function (e) { setLabel(e.target.value); }} />`}
+    <div className="row" style=${{ marginTop: ".9rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy || (!isAdmin && !existing && !label.trim())} onClick=${go}>${busy ? "One moment..." : existing ? "Share again" : "Create and send"}</button></div>
+    ${mine.length > 0 && html`<div style=${{ marginTop: "1.1rem" }}><div className="hdr" style=${{ padding: 0 }}>Your invites still waiting</div>
+      ${mine.map(function (inv) {
+        return html`<div className="row" key=${inv.id} style=${{ margin: ".5rem 0" }}>
+          <div className="grow"><div style=${{ fontWeight: 600 }}>${inv.label || "Invite"}</div><div className="muted" style=${{ fontSize: ".75rem" }}>${"Expires in " + daysUntil(inv.expires_at) + " days"}</div></div>
+          <button className="btn sm grey" onClick=${function () { again(inv); }}>Share</button>
+          <button className="btn sm danger" onClick=${function () { cancelOne(inv); }}>Cancel</button></div>`;
+      })}</div>`}
   </${Sheet}>`;
 }
 
@@ -3084,7 +3582,9 @@ function BackupReminder() {
 
 
 function People() {
-  const { me, profiles, push, tick, openHello, pendingCount } = useApp();
+  const { me, profiles, push, tick, openHello, pendingCount, openInvite } = useApp();
+  const canInvite = useCanInvite();
+  const [startCall, setStartCall] = useState(false);
   const [last, setLast] = useState(null);
   const [err, setErr] = useState(false);
 
@@ -3151,6 +3651,15 @@ function People() {
         <div className="grow"><div style=${{ fontWeight: 600 }}>🕵️ Guess who? A family game</div><div className="muted" style=${{ fontSize: ".8rem" }}>Match favorites and answers to the right person</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>
+      ${callSupported() && html`<button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { setStartCall(true); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>📹 Video chat</div><div className="muted" style=${{ fontSize: ".8rem" }}>Talk face to face with up to 3 family members</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>`}
+      ${startCall && html`<${StartCallSheet} onClose=${function () { setStartCall(false); }} />`}
+      ${canInvite && html`<button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { openInvite(); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>➕ Invite someone</div><div className="muted" style=${{ fontSize: ".8rem" }}>${me.role === "admin" ? "Send a private one-time link" : "The organizer approves everyone before they join"}</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>`}
       ${active.map(function (m) { return row(m, false); })}
       ${quiet.length > 0 && html`<div className="hdr">Quiet lately (only you can see this)</div>`}
       ${quiet.map(function (m) { return row(m, true); })}
@@ -3177,6 +3686,7 @@ function Organizer() {
   const [list, setList] = useState(null);
   const [invites, setInvites] = useState([]);
   const [code, setCode] = useState("");
+  const [opts, setOpts] = useState({ members_can_invite: true, weekly_prompt: true });
   const [err, setErr] = useState(false);
   const [used, setUsed] = useState(null);
   useEffect(function () {
@@ -3185,13 +3695,14 @@ function Organizer() {
   const load = useCallback(async function () {
     const res = await Promise.all([
       sb.from("profiles").select("*").order("created_at"),
-      sb.from("settings").select("invite_code").eq("id", 1).maybeSingle(),
+      sb.from("settings").select("invite_code,members_can_invite,weekly_prompt").eq("id", 1).maybeSingle(),
       sb.from("invites").select("*").is("used_at", null).gte("expires_at", new Date().toISOString()).order("created_at", { ascending: false })
     ]);
     if (res[0].error) { setErr(true); return; }
     setErr(false);
     setList(res[0].data || []);
     setCode((res[1].data || {}).invite_code || "");
+    setOpts({ members_can_invite: (res[1].data || {}).members_can_invite !== false, weekly_prompt: (res[1].data || {}).weekly_prompt !== false });
     setInvites(res[2].data || []);
   }, []);
   useEffect(function () { load(); }, [load]);
@@ -3206,6 +3717,12 @@ function Organizer() {
     if (c.length < 6) { toast("Please use at least 6 characters."); return; }
     const r = await sb.from("settings").update({ invite_code: c }).eq("id", 1);
     toast(r.error ? r.error.message : "Family code saved");
+  }
+  async function setOpt(k, v) {
+    const patch = {}; patch[k] = v;
+    setOpts(function (o) { return Object.assign({}, o, patch); });
+    const r = await sb.from("settings").update(patch).eq("id", 1);
+    if (r.error) { toast(r.error.message); load(); } else toast("Saved");
   }
   async function revoke(inv) {
     const r = await sb.from("invites").delete().eq("id", inv.id);
@@ -3227,7 +3744,9 @@ function Organizer() {
         <h2 className="serif sec">Waiting to be welcomed (${pending.length})</h2>
         ${!pending.length && html`<div className="muted" style=${{ fontSize: ".85rem" }}>Nobody is waiting.</div>`}
         ${pending.map(function (p) {
-          return html`<div className="row" key=${p.id} style=${{ margin: ".5rem 0" }}><div className="grow" style=${{ fontWeight: 600 }}>${nm(p)}</div>
+          const by = p.invited_by && (list || []).find(function (x) { return x.id === p.invited_by; });
+          return html`<div className="row" key=${p.id} style=${{ margin: ".5rem 0" }}><div className="grow"><div style=${{ fontWeight: 600 }}>${nm(p)}</div>
+            ${by && html`<div className="muted" style=${{ fontSize: ".78rem" }}>${"Invited by " + nm(by) + (p.invite_note ? " as \"" + p.invite_note + "\"" : "")}</div>`}</div>
             <button className="btn sm" onClick=${function () { setStatus(p.id, "approved"); }}>Welcome</button>
             <button className="btn sm danger" onClick=${function () { setStatus(p.id, "removed"); }}>No</button></div>`;
         })}
@@ -3244,6 +3763,10 @@ function Organizer() {
             <button className="rowmain" onClick=${function () { push({ name: "prompt", id: pr.id }); }}><div><div style=${{ fontWeight: 600 }}>${pr.body}</div><div className="muted" style=${{ fontSize: ".75rem" }}>${agoLong(pr.created_at)}</div></div></button>
             <button className="linkbtn" style=${{ color: "var(--red)" }} onClick=${function () { delPrompt(pr); }}>Delete</button></div>`;
         })}
+
+        <h2 className="serif sec">Who can invite</h2>
+        <label className="row" style=${{ margin: ".3rem 0", gap: ".7rem" }}><input type="checkbox" checked=${opts.members_can_invite} onChange=${function (e) { setOpt("members_can_invite", e.target.checked); }} /><span className="grow">Let members invite people (you still approve each one)</span></label>
+        <label className="row" style=${{ margin: ".3rem 0", gap: ".7rem" }}><input type="checkbox" checked=${opts.weekly_prompt} onChange=${function (e) { setOpt("weekly_prompt", e.target.checked); }} /><span className="grow">Post a fun family question every Friday</span></label>
 
         <h2 className="serif sec">Invite links</h2>
         <div className="muted" style=${{ fontSize: ".8rem", marginBottom: ".6rem" }}>Each link works once and expires in 7 days, so a forwarded link cannot let a stranger in later.</div>
@@ -4070,6 +4593,17 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
     } catch (e) {}
   }, []);
 
+  /* open a shared video chat link (?call=...) once signed in */
+  useEffect(function () {
+    try {
+      const id = new URLSearchParams(location.search).get("call");
+      if (id && /^[0-9a-f-]{36}$/i.test(id)) {
+        history.replaceState({}, "", location.pathname);
+        push({ name: "call", id: id });
+      }
+    } catch (e) {}
+  }, []);
+
   /* keep the feed where you left it */
   const deep = stack.length > 1;
   useLayoutEffect(function () {
@@ -4147,6 +4681,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "celebrations": return html`<${Celebrations} />`;
       case "events": return html`<${Events} />`;
       case "event": return html`<${EventScreen} id=${route.id} />`;
+      case "call": return html`<${CallScreen} id=${route.id} key=${route.id} />`;
       case "wall": return html`<${PhotoWall} id=${route.id} />`;
       case "story": return html`<${StoryViewer} authorId=${route.authorId} />`;
       case "settings": return html`<${Settings} />`;
