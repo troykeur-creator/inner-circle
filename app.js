@@ -504,6 +504,11 @@ function TopBar({ title, back, right }) {
     <div style=${{ minWidth: "2.75rem", display: "flex", justifyContent: "flex-end" }}>${right}</div>
   </div>`;
 }
+/* Header for a main tab (no back arrow) or for a screen opened from somewhere (back arrow). */
+function Bar({ root, title, back, right }) {
+  if (!root) return html`<${TopBar} title=${title} back=${back} right=${right} />`;
+  return html`<div className="top"><h1 className="serif" style=${{ color: "#0879a0", fontSize: "1.7rem" }}>${title}</h1>${right}</div>`;
+}
 function Failed({ what, onRetry }) {
   return html`<div className="center" style=${{ padding: "3rem 1.5rem" }}>
     <p className="muted" style=${{ marginTop: 0 }}>${"We could not load " + (what || "this") + ". Check your connection and try again."}</p>
@@ -1270,7 +1275,7 @@ function CallScreen({ id }) {
       <div style=${{ padding: "1rem" }}>
         ${call === undefined && html`<div className="center muted" style=${{ padding: "3rem" }}>One moment...</div>`}
         ${call === null && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat is not here anymore.</div>`}
-        ${call && ended && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat has ended. You can start a new one from the People tab.</div>`}
+        ${call && ended && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>This video chat has ended. You can start a new one from More, then Video chat.</div>`}
         ${call && !ended && !callSupported() && html`<div className="warnbox">This browser cannot do video chat. On an iPhone, open Inner Circle from the home screen icon or in Safari (iOS 16 or newer). On Android, use Chrome.</div>`}
         ${call && !ended && callSupported() && html`<div className="knowcard" style=${{ margin: 0 }}>
           <div style=${{ fontWeight: 700, fontSize: "1.1rem" }}>${call.host_id === me.id ? "Your video chat" : nm(host) + " is on a video chat"}</div>
@@ -1446,8 +1451,8 @@ function PushAsk() {
     try {
       const r = await pushEnable();
       if (r === "granted") toast("Notifications are on.");
-      else toast("No problem. You can turn them on later in Me, then the gear icon.");
-    } catch (e) { toast("Could not turn on notifications. Open Me, then the gear icon, and try the Notifications switch to see why."); }
+      else toast("No problem. You can turn them on later in More, then Settings.");
+    } catch (e) { toast("Could not turn on notifications. Open More, then Settings, and try the Notifications switch to see why."); }
     lsSet("ic-push-ask", "1"); setShow(false);
   }
   return html`<div className="pcard slim">
@@ -1459,7 +1464,6 @@ function PushAsk() {
 
 function Home() {
   const { me, profiles, toast, push, tick, unread, memberCount } = useApp();
-  const chatUnread = useChatUnread();
   const [posts, setPosts] = useState(null);
   const [stories, setStories] = useState([]);
   const [limit, setLimit] = useState(15);
@@ -1514,7 +1518,6 @@ function Home() {
   const header = html`<div className="top compact"><div className="brand"><${Logo} />Inner Circle</div>
     <div className="row" style=${{ gap: 0 }}>
       ${posts && !noteBy[me.id] && html`<button className="notepill" onClick=${function () { setNoteSheet({ own: true, note: null }); }}>+ Note</button>`}
-      <button className="ibtn" aria-label=${chatUnread ? "Family chat, new messages" : "Family chat"} onClick=${function () { push({ name: "chat" }); }}><${Icon} n="comment" s=${24} />${chatUnread && html`<span className="badge"></span>`}</button>
       <button className="ibtn" aria-label=${unread ? "Activity, new" : "Activity"} onClick=${function () { push({ name: "activity" }); }}><${Icon} n="heart" s=${24} />${unread && html`<span className="badge"></span>`}</button>
     </div></div>`;
 
@@ -2150,8 +2153,8 @@ function Welcome({ onDone }) {
     setBusy(true);
     try {
       const r = await pushEnable();
-      if (r !== "granted") toast("No problem. You can turn it on later in Me, then the gear icon.");
-    } catch (e) { toast("Could not turn it on. You can try later in Me, then the gear icon."); }
+      if (r !== "granted") toast("No problem. You can turn it on later in More, then Settings.");
+    } catch (e) { toast("Could not turn it on. You can try later in More, then Settings."); }
     lsSet("ic-push-ask", "1");
     setBusy(false);
     next();
@@ -2188,7 +2191,8 @@ function Welcome({ onDone }) {
       <ul className="tips">
         <li><span>➕</span><span>Tap <b>Share</b> at the bottom to post a photo or video.</span></li>
         <li><span>❤️</span><span>Double-tap a photo to love it.</span></li>
-        <li><span>👋</span><span>Tap <b>People</b> to say hello to family.</span></li>
+        <li><span>💬</span><span>Tap <b>Chat</b> to talk with family, and <b>Events</b> for the wedding plans.</span></li>
+        <li><span>👋</span><span>Tap <b>More</b> for family members, polls, video chat and your settings.</span></li>
       </ul>
       <button className="btn block wbtn" onClick=${finish}>Start</button>
     </div>`}
@@ -2505,7 +2509,7 @@ function GuessWho() {
     ${rows && (withFacts < 1 || people.length < 2) && html`<div className="center" style=${{ padding: "3rem 1.5rem" }}>
       <div style=${{ fontSize: "3rem" }}>🕵️</div>
       <div className="serif" style=${{ fontSize: "1.3rem", color: "var(--green)", margin: ".4rem 0" }}>Not enough answers yet</div>
-      <div className="muted">Guess who needs at least two other family members to have filled in Get to know me. Ask them to open Me, then Get to know me.</div></div>`}
+      <div className="muted">Guess who needs at least two other family members to have filled in Get to know me. Ask them to open More, then Settings, then Get to know me.</div></div>`}
     ${q && !done && html`<div style=${{ padding: "1rem" }}>
       <div className="muted" style=${{ fontWeight: 600 }}>Question ${round + 1} of ${withFacts} · Score ${score}</div>
       <div className="gwq"><span aria-hidden="true" style=${{ fontSize: "1.6rem" }}>${q.e}</span><div>${q.q} <b>${q.a}</b></div></div>
@@ -2841,7 +2845,7 @@ function buildCelebrations(profiles, anniv) {
     const p = profiles[id];
     if (!p || p.status !== "approved" || !p.birth_month) return;
     const dt = occurrence(p.birth_month, p.birth_day);
-    list.push({ kind: "birthday", key: id, title: nm(p) + "'s birthday", name: nm(p), m: p.birth_month, d: p.birth_day, dt: dt, days: daysAway(dt), year: dt.getFullYear() });
+    list.push({ kind: "birthday", key: id, title: nm(p) + "'s birthday", name: nm(p), m: p.birth_month, d: p.birth_day, dt: dt, days: daysAway(dt), year: dt.getFullYear(), years: p.birth_year ? dt.getFullYear() - p.birth_year : 0 });
   });
   (anniv || []).forEach(function (a) {
     const dt = occurrence(a.month, a.day);
@@ -2849,9 +2853,18 @@ function buildCelebrations(profiles, anniv) {
   });
   return list.sort(function (x, y) { return x.days - y.days || String(x.name).localeCompare(String(y.name)); });
 }
+async function setBirthday(target, m, d, y) {   /* older databases only know the 3-argument version */
+  let r = await sb.rpc("set_birthday", { target: target, m: m, d: d, y: y || null });
+  if (r.error && !y && /function|schema cache/i.test(r.error.message || "")) r = await sb.rpc("set_birthday", { target: target, m: m, d: d });
+  return r;
+}
+function ageText(c) {   /* "turns 41" for a birthday with a year, "12 years" for an anniversary */
+  if (!(c.years > 0)) return "";
+  return c.kind === "birthday" ? " · turns " + c.years : " · " + c.years + (c.years === 1 ? " year" : " years");
+}
 function fmtMD(m, d) { return MONTHS[m - 1] + " " + d; }
 
-function MonthDay({ m, d, onM, onD, idp }) {
+function MonthDay({ m, d, onM, onD, idp, y, onY }) {
   const max = m ? DIM[m - 1] : 31;
   return html`<div className="row" style=${{ gap: ".5rem" }}>
     <label className="sr" htmlFor=${idp + "-m"}>Month</label>
@@ -2862,6 +2875,10 @@ function MonthDay({ m, d, onM, onD, idp }) {
     <select id=${idp + "-d"} className="field" style=${{ maxWidth: "6rem" }} value=${d || ""} onChange=${function (e) { onD(e.target.value ? +e.target.value : 0); }}>
       <option value="">Day</option>${Array.from({ length: max }, function (_, i) { return html`<option key=${i} value=${i + 1}>${i + 1}</option>`; })}
     </select>
+    ${onY && html`<label className="sr" htmlFor=${idp + "-y"}>Year (optional)</label>
+    <select id=${idp + "-y"} className="field" style=${{ maxWidth: "6.5rem" }} value=${y || ""} onChange=${function (e) { onY(e.target.value ? +e.target.value : 0); }}>
+      <option value="">Year</option>${Array.from({ length: new Date().getFullYear() - 1899 }, function (_, i) { const yy = new Date().getFullYear() - i; return html`<option key=${yy} value=${yy}>${yy}</option>`; })}
+    </select>`}
   </div>`;
 }
 
@@ -2913,11 +2930,12 @@ function BirthdayForSheet({ onClose, onSaved }) {
   const [who, setWho] = useState(people[0] ? people[0].id : "");
   const [m, setM] = useState(0);
   const [d, setD] = useState(0);
+  const [y, setY] = useState(0);
   const [busy, setBusy] = useState(false);
   async function save() {
     if (!who || !m || !d) { toast("Pick a person, a month and a day."); return; }
     setBusy(true);
-    const r = await sb.rpc("set_birthday", { target: who, m: m, d: Math.min(d, DIM[m - 1]) });
+    const r = await setBirthday(who, m, Math.min(d, DIM[m - 1]), y);
     setBusy(false);
     if (r.error) { toast(r.error.message); return; }
     toast("Birthday saved"); onSaved();
@@ -2926,8 +2944,8 @@ function BirthdayForSheet({ onClose, onSaved }) {
     ${people.length === 0 ? html`<p className="muted">Everyone already has a birthday saved.</p>` : html`
       <label htmlFor="bf-who" className="flabel">Who</label>
       <select id="bf-who" className="field" value=${who} onChange=${function (e) { setWho(e.target.value); }}>${people.map(function (p) { return html`<option key=${p.id} value=${p.id}>${nm(p)}</option>`; })}</select>
-      <div className="flabel">Birthday (no year needed)</div>
-      <${MonthDay} idp="bf" m=${m} d=${d} onM=${setM} onD=${setD} />
+      <div className="flabel">Birthday (the year is optional)</div>
+      <${MonthDay} idp="bf" m=${m} d=${d} onM=${setM} onD=${setD} y=${y} onY=${setY} />
       <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${save}>${busy ? "Saving..." : "Save"}</button></div>`}
   </${Sheet}>`;
 }
@@ -2969,7 +2987,7 @@ function WishSheet({ c, onClose, onEdit }) {
   const canEdit = c.kind === "anniversary" && c.anniv && (c.anniv.created_by === me.id || me.role === "admin");
   const isMe = c.kind === "birthday" && c.key === me.id;
   return html`<${Sheet} title=${(c.kind === "birthday" ? "🎂 " : "💍 ") + c.title} onClose=${onClose}>
-    <div className="muted" style=${{ marginTop: "-.3rem", marginBottom: ".8rem" }}>${fmtMD(c.m, c.d)} · ${awayLabel(c.days)}${c.years > 0 ? " · " + c.years + (c.years === 1 ? " year" : " years") : ""}</div>
+    <div className="muted" style=${{ marginTop: "-.3rem", marginBottom: ".8rem" }}>${fmtMD(c.m, c.d)} · ${awayLabel(c.days)}${ageText(c)}</div>
     ${wishes === null ? html`<div className="muted center" style=${{ padding: "1rem" }}>Loading...</div>`
       : wishes.length === 0 ? html`<div className="muted" style=${{ padding: ".2rem 0 .8rem" }}>${isMe ? "Wishes from your family will show up here." : "No wishes yet. Be the first."}</div>`
       : html`<div className="wishes">${wishes.map(function (w) {
@@ -3017,7 +3035,7 @@ function Celebrations() {
       ${lead(c)}
       <div className="grow" style=${{ minWidth: 0, textAlign: "left" }}>
         <div style=${{ fontWeight: 600 }}>${c.title}</div>
-        <div className="muted" style=${{ fontSize: ".85rem" }}>${fmtMD(c.m, c.d)}${c.years > 0 ? " · " + c.years + (c.years === 1 ? " year" : " years") : ""}</div>
+        <div className="muted" style=${{ fontSize: ".85rem" }}>${fmtMD(c.m, c.d)}${ageText(c)}</div>
       </div>
       <div className=${"away" + (c.days <= 7 ? " near" : "")}>${awayLabel(c.days)}</div>
     </button>`;
@@ -3171,7 +3189,7 @@ function EventForm({ ev, onClose, onSaved }) {
   </${Sheet}>`;
 }
 
-function Events() {
+function Events({ root }) {
   const { me, back, push, tick, bump } = useApp();
   const [events, setEvents] = useState(null);
   const [rsvps, setRsvps] = useState([]);
@@ -3203,9 +3221,13 @@ function Events() {
       <span className=${"pillx" + (st.live ? " live" : st.past ? " old" : "")}>${st.label}</span>
     </button>`;
   }
-  if (err && !events) return html`<div><${TopBar} title="Events" back=${back} /><${Failed} what="events" onRetry=${load} /></div>`;
+  if (err && !events) return html`<div><${Bar} root=${root} title="Events" back=${back} /><${Failed} what="events" onRetry=${load} /></div>`;
   return html`<div>
-    <${TopBar} title="Events" back=${back} right=${html`<button className="tbtn" onClick=${function () { setForm(true); }}>New</button>`} />
+    <${Bar} root=${root} title="Events" back=${back} right=${html`<button className="tbtn" onClick=${function () { setForm(true); }}>New</button>`} />
+    <button className="listrow" style=${{ borderTop: "1px solid var(--soft)", borderBottom: "1px solid var(--soft)", marginBottom: ".6rem" }} onClick=${function () { push({ name: "celebrations" }); }}>
+      <div className="grow"><div style=${{ fontWeight: 600 }}>🎂 Birthdays and anniversaries</div><div className="muted" style=${{ fontSize: ".8rem" }}>Never miss a special day, send a wish</div></div>
+      <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+    </button>
     ${!events && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Loading...</div>`}
     ${events && upcoming.length === 0 && html`<div className="cmtempty">
       <div className="bub"><span style=${{ fontSize: "1.8rem" }}>🎉</span></div>
@@ -3691,10 +3713,58 @@ function BackupReminder() {
 }
 
 
-function People() {
-  const { me, profiles, push, tick, openHello, pendingCount, openInvite } = useApp();
+/* =====================  More: everything else, in plain groups  ===================== */
+function Tile({ icon, label, sub, onClick, dot }) {
+  return html`<button className="tile" onClick=${onClick}><span className="tico" aria-hidden="true">${icon}</span><span className="tlbl">${label}</span>${sub && html`<span className="tsub">${sub}</span>`}${dot && html`<span className="badge" style=${{ top: ".6rem", right: ".6rem" }}></span>`}</button>`;
+}
+function MoreScreen() {
+  const { me, push, openInvite, pendingCount, memberCount } = useApp();
   const canInvite = useCanInvite();
   const [startCall, setStartCall] = useState(false);
+  const admin = me.role === "admin";
+  return html`<div>
+    <div className="top"><h1 className="serif" style=${{ color: "#0879a0", fontSize: "1.7rem" }}>More</h1></div>
+    <button className="mecard" onClick=${function () { push({ name: "profile", userId: me.id }); }}>
+      <${Avatar} id=${me.id} name=${me.display_name} size=${56} />
+      <div className="grow" style=${{ textAlign: "left", minWidth: 0 }}><div style=${{ fontWeight: 700, fontSize: "1.1rem" }}>${nm(me)}</div><div className="muted" style=${{ fontSize: ".85rem" }}>See my profile and posts</div></div>
+      <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+    </button>
+    <h2 className="morehd">Family</h2>
+    <div className="tiles">
+      <${Tile} icon="👪" label="Family members" sub=${memberCount + (memberCount === 1 ? " person" : " people")} onClick=${function () { push({ name: "people" }); }} />
+      <${Tile} icon="👥" label="My groups" sub="Siblings, grandkids..." onClick=${function () { push({ name: "groups" }); }} />
+      ${canInvite && html`<${Tile} icon="➕" label="Invite someone" sub=${admin ? "Send a private link" : "The organizer approves"} onClick=${function () { openInvite(); }} />`}
+    </div>
+    <h2 className="morehd">Do together</h2>
+    <div className="tiles">
+      ${callSupported() && html`<${Tile} icon="📹" label="Video chat" sub="Talk face to face" onClick=${function () { setStartCall(true); }} />`}
+      <${Tile} icon="📊" label="Polls" sub="Ask the family" onClick=${function () { push({ name: "polls" }); }} />
+      <${Tile} icon="💌" label="Time capsules" sub="Letters for later" onClick=${function () { push({ name: "capsules" }); }} />
+      <${Tile} icon="🕵️" label="Guess who?" sub="A family game" onClick=${function () { push({ name: "guesswho" }); }} />
+    </div>
+    <h2 className="morehd">Look back</h2>
+    <div className="tiles">
+      <${Tile} icon="🕰️" label="Memories" sub="On this day, albums" onClick=${function () { push({ name: "memories" }); }} />
+    </div>
+    <h2 className="morehd">You and help</h2>
+    <div className="tiles">
+      <${Tile} icon="⚙️" label="Settings" sub="Photo, birthday, notifications" onClick=${function () { push({ name: "settings" }); }} />
+      <${Tile} icon="❓" label="Help and privacy" sub="Who sees what" onClick=${function () { push({ name: "help" }); }} />
+      ${admin && html`<${Tile} icon="🛠️" label="Manage" sub=${pendingCount > 0 ? pendingCount + " waiting to join" : "Organizer tools"} dot=${pendingCount > 0} onClick=${function () { push({ name: "organizer" }); }} />`}
+    </div>
+    <div style=${{ height: "1rem" }}></div>
+    ${startCall && html`<${StartCallSheet} onClose=${function () { setStartCall(false); }} />`}
+  </div>`;
+}
+
+function ChatTabIcon({ active }) {
+  const unread = useChatUnread();
+  return html`<span style=${{ position: "relative", display: "flex" }}><${Icon} n="comment" s=${26} fill=${active ? "currentColor" : "none"} />${unread && html`<span className="badge" style=${{ top: "-.1rem", right: "-.25rem" }}></span>`}</span>`;
+}
+
+function People() {
+  const { me, profiles, push, back, tick, openHello, openInvite } = useApp();
+  const canInvite = useCanInvite();
   const [last, setLast] = useState(null);
   const [err, setErr] = useState(false);
 
@@ -3717,10 +3787,7 @@ function People() {
     .sort(function (a, b) { return nm(a).localeCompare(nm(b)); });
   const admin = me.role === "admin";
 
-  const header = html`<div className="top"><div><h1 className="serif" style=${{ color: "#0879a0", fontSize: "1.7rem" }}>Your Inner Circle</h1></div>
-    ${admin && html`<button className="btn sm grey" style=${{ position: "relative" }} onClick=${function () { push({ name: "organizer" }); }}>Manage${pendingCount > 0 ? html`<span className="badge" style=${{ top: "-.2rem", right: "-.2rem" }}></span>` : ""}</button>`}</div>`;
-
-  if (err && !last) return html`<div>${header}<${Failed} what="your circle" onRetry=${load} /></div>`;
+  const header = html`<${TopBar} title="Family members" back=${back} right=${canInvite ? html`<button className="tbtn" onClick=${function () { openInvite(); }}>Invite</button>` : null} />`;  if (err && !last) return html`<div>${header}<${Failed} what="your circle" onRetry=${load} /></div>`;
   if (!last) return html`<div>${header}<div className="center muted" style=${{ padding: "4rem 1rem" }}>Loading...</div></div>`;
   const quietOf = function (m) { return admin && m.id !== me.id && (!last[m.id] || daysSince(last[m.id]) >= 14); };
   const active = members.filter(function (m) { return !quietOf(m); });
@@ -3745,43 +3812,6 @@ function People() {
     <div>
       ${header}
       <div className="muted" style=${{ padding: "0 1rem .1rem", fontSize: ".85rem" }}>${members.length} ${members.length === 1 ? "person" : "people"}. Everyone here was invited by family.</div>
-      <button className="listrow" style=${{ borderTop: "1px solid var(--soft)", borderBottom: "1px solid var(--soft)", margin: ".5rem 0" }} onClick=${function () { push({ name: "groups" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>My groups</div><div className="muted" style=${{ fontSize: ".8rem" }}>Share with just some family, like Siblings or Grandkids</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>
-      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "events" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>Events</div><div className="muted" style=${{ fontSize: ".8rem" }}>RSVP, sign up to bring something, share photos</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>
-      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "celebrations" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>Birthdays and anniversaries</div><div className="muted" style=${{ fontSize: ".8rem" }}>Never miss a special day, send a wish</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>
-      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "guesswho" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>🕵️ Guess who? A family game</div><div className="muted" style=${{ fontSize: ".8rem" }}>Match favorites and answers to the right person</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>
-      ${callSupported() && html`<button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { setStartCall(true); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>📹 Video chat</div><div className="muted" style=${{ fontSize: ".8rem" }}>Talk face to face with up to 3 family members</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>`}
-      ${startCall && html`<${StartCallSheet} onClose=${function () { setStartCall(false); }} />`}
-      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "chat" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>💬 Family chat</div><div className="muted" style=${{ fontSize: ".8rem" }}>Everyone, or just one of your groups</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>
-      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "polls" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>📊 Polls</div><div className="muted" style=${{ fontSize: ".8rem" }}>Ask the family, see answers live</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>
-      <button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { push({ name: "capsules" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>💌 Time capsules</div><div className="muted" style=${{ fontSize: ".8rem" }}>Letters that stay sealed until a day you choose</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>
-      ${canInvite && html`<button className="listrow" style=${{ borderBottom: "1px solid var(--soft)", marginBottom: ".5rem" }} onClick=${function () { openInvite(); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>➕ Invite someone</div><div className="muted" style=${{ fontSize: ".8rem" }}>${me.role === "admin" ? "Send a private one-time link" : "The organizer approves everyone before they join"}</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
-      </button>`}
       ${active.map(function (m) { return row(m, false); })}
       ${quiet.length > 0 && html`<div className="hdr">Quiet lately (only you can see this)</div>`}
       ${quiet.map(function (m) { return row(m, true); })}
@@ -4089,13 +4119,13 @@ function useChatUnread() {
   const C = useChatRooms();
   return (C.rows || []).some(function (m) { return m.author_id !== me.id && m.created_at > chatSeen(m.group_id); });
 }
-function ChatList() {
+function ChatList({ root }) {
   const { me, profiles, groupNames, back, push } = useApp();
   const C = useChatRooms();
   const latest = {};
   (C.rows || []).forEach(function (m) { latest[chatKey(m.group_id)] = m; });
   const rooms = [{ key: "all", name: "Everyone", sub: "The whole Inner Circle" }].concat(Object.keys(groupNames || {}).map(function (id) { return { key: id, name: groupNames[id], sub: "Group" }; }));
-  return html`<div><${TopBar} title="Family chat" back=${back} />
+  return html`<div><${Bar} root=${root} title="Chat" back=${back} />
     <div style=${{ padding: ".5rem 0" }}>
       ${C.missing && html`<div className="center muted" style=${{ padding: "3rem 1rem" }}>Chat is not set up yet. The organizer needs to run the latest SQL.</div>`}
       ${!C.missing && rooms.map(function (r) {
@@ -4351,7 +4381,7 @@ function HelpScreen() {
           <li>Photos, videos and voice memos are kept in private storage. They are shown only to signed-in members, through short-lived links.</li>
           <li>There are no ads, no tracking and no analytics. Nothing is sold.</li>
           <li>A post shared with a group, or hidden from someone, is not visible to the people left out.</li>
-          <li>Your birthday shows the month and day only, never the year.</li>
+          <li>Your birthday shows the month and day. Adding the year is optional; if you do, family sees the age you are turning. You can remove it any time in Settings.</li>
           <li>"Your day" posts and notes disappear from the top of Home after 24 hours.</li>
           <li>Video chats are never recorded or saved.</li>
         </ul>
@@ -4368,7 +4398,7 @@ function HelpScreen() {
         <p><b>Android:</b> in Chrome, tap <b>Install</b> when it asks, or tap the three dots, then <b>Install app</b>.</p>
       </div>`)}
       ${sec("Notifications are not working", false, html`<div>
-        <p>Open <b>Me</b>, tap the gear, and turn on the <b>Notifications</b> switch. If it shows a red message, that tells you what is wrong.</p>
+        <p>Open <b>More</b>, then <b>Settings</b>, and turn on the <b>Notifications</b> switch. If it shows a red message, that tells you what is wrong.</p>
         <p>Once they are on, you can choose which kinds you hear about (chat, polls, new moments and so on) and set quiet hours. Quiet hours use the time zone of the phone you open the app on.</p>
         <p><b>iPhone:</b> Settings, Notifications, Inner Circle, Allow Notifications. <b>Android:</b> press and hold the Inner Circle icon, tap App info, then Notifications, and turn them on.</p>
       </div>`)}
@@ -4377,27 +4407,27 @@ function HelpScreen() {
         <p>Use <b>Your day</b> at the top of Home for quick moments that last a day.</p>
       </div>`)}
       ${sec("Video chat", false, html`<div>
-        <p>Open <b>People</b>, then <b>Video chat</b>. Up to 4 people can be in one room. Allow the camera and microphone when your phone asks, use Wi-Fi if you can, and keep your screen on, because a locked phone drops out of the call.</p>
+        <p>Open <b>More</b>, then <b>Video chat</b>. Up to 4 people can be in one room. Allow the camera and microphone when your phone asks, use Wi-Fi if you can, and keep your screen on, because a locked phone drops out of the call.</p>
         <p>If you can join but cannot see or hear someone, ask them to leave and rejoin, or try on Wi-Fi.</p>
       </div>`)}
       ${sec("Chat, polls and time capsules", false, html`<div>
-        <p><b>Family chat:</b> tap the chat bubble at the top of Home, or People, then Family chat. "Everyone" is the whole Inner Circle; each of your groups has its own room. Messages are text and emoji. Tap a message to delete your own. Organizers can delete any message.</p>
-        <p><b>Polls:</b> People, then Polls. Tap a choice to vote, tap it again to take your vote back. Everyone can see who voted for what.</p>
-        <p><b>Time capsules:</b> People, then Time capsules. A letter stays hidden from everyone but you until the day you choose, then the people it is for get a notification. You can delete a letter before it opens. As with everything stored here, whoever runs the app has technical access.</p>
+        <p><b>Family chat:</b> tap <b>Chat</b> at the bottom. "Everyone" is the whole Inner Circle; each of your groups has its own room. Messages are text and emoji. Tap a message to delete your own. Organizers can delete any message.</p>
+        <p><b>Polls:</b> More, then Polls. Tap a choice to vote, tap it again to take your vote back. Everyone can see who voted for what.</p>
+        <p><b>Time capsules:</b> More, then Time capsules. A letter stays hidden from everyone but you until the day you choose, then the people it is for get a notification. You can delete a letter before it opens. As with everything stored here, whoever runs the app has technical access.</p>
         <p>Your time zone is saved automatically so family can see your local time on your profile.</p>
       </div>`)}
       ${sec("Leaving, or removing something", false, html`<div>
         <p>You can delete your own posts (from the ••• menu on the post) and your own comments (tap Delete under them). To leave Inner Circle, or to have everything you shared removed, ask an organizer.</p>
       </div>`)}
       ${sec("Who to ask for help", false, html`<div>
-        <p>${orgs.length ? "Organizers: " + orgs.join(", ") + "." : "Ask the family organizer."} You can find them on the People tab, or just text them.</p>
+        <p>${orgs.length ? "Organizers: " + orgs.join(", ") + "." : "Ask the family organizer."} You can find them under More, then Family members, or just text them.</p>
       </div>`)}
     </div></div>`;
 }
 
 /* =====================  memories  ===================== */
-function Memories() {
-  const { tick } = useApp();
+function Memories({ root }) {
+  const { tick, back } = useApp();
   const [view, setView] = useState("day");
   const [posts, setPosts] = useState(null);
   const [err, setErr] = useState(false);
@@ -4415,7 +4445,7 @@ function Memories() {
     setPosts(full.data || []);
   }, []);
   useEffect(function () { load(); }, [load, tick]);
-  const header = html`<div><div className="top"><div><h1 className="serif" style=${{ color: "#0879a0", fontSize: "1.7rem" }}>Memories</h1></div></div>
+  const header = html`<div><${Bar} root=${root} title="Memories" back=${back} />
     <div className="seg" role="tablist"><button role="tab" aria-selected=${view === "day"} className=${view === "day" ? "on" : ""} onClick=${function () { setView("day"); }}>On this day</button><button role="tab" aria-selected=${view === "albums"} className=${view === "albums" ? "on" : ""} onClick=${function () { setView("albums"); }}>Albums</button></div></div>`;
   if (view === "albums") return html`<div>${header}<${AlbumsList} /></div>`;
   if (err && !posts) return html`<div>${header}<${Failed} what="your memories" onRetry=${load} /></div>`;
@@ -4479,6 +4509,7 @@ function Settings() {
   const [bio, setBio] = useState(me.bio || "");
   const [bm, setBm] = useState(me.birth_month || 0);
   const [bd, setBd] = useState(me.birth_day || 0);
+  const [by, setBy] = useState(me.birth_year || 0);
   const [busy, setBusy] = useState(false);
   const [arch, setArch] = useState("");
   const [pushOn, setPushOn] = useState(false);
@@ -4572,8 +4603,8 @@ function Settings() {
     if ((bm && !bd) || (!bm && bd)) { toast("Pick both the month and the day for your birthday."); return; }
     setBusy(true);
     const r = await sb.from("profiles").update({ display_name: n, relation: relation.trim(), bio: bio.trim() }).eq("id", me.id);
-    if (!r.error && bm && bd && (bm !== me.birth_month || bd !== me.birth_day)) {
-      const b = await sb.rpc("set_birthday", { target: me.id, m: bm, d: Math.min(bd, DIM[bm - 1]) });
+    if (!r.error && bm && bd && (bm !== me.birth_month || bd !== me.birth_day || (by || 0) !== (me.birth_year || 0))) {
+      const b = await setBirthday(me.id, bm, Math.min(bd, DIM[bm - 1]), by);
       if (b.error) { setBusy(false); toast(b.error.message); return; }
     }
     setBusy(false);
@@ -4605,8 +4636,8 @@ function Settings() {
         <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".3rem" }}>Everyone sees this next to your name, so people know who you are.</div>
         <label htmlFor="s-bio" className="flabel">About you</label>
         <textarea id="s-bio" className="field" rows="3" maxLength="300" value=${bio} onChange=${function (e) { setBio(e.target.value); }} placeholder="Where you live, what you love, how to say hello..."></textarea>
-        <div className="flabel">Birthday (no year, so family can celebrate you)</div>
-        <${MonthDay} idp="s-bd" m=${bm} d=${bd} onM=${setBm} onD=${setBd} />
+        <div className="flabel">Birthday (the year is optional. If you add it, family sees how old you are turning)</div>
+        <${MonthDay} idp="s-bd" m=${bm} d=${bd} onM=${setBm} onD=${setBd} y=${by} onY=${setBy} />
       </div>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "prefs" }); }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>Favorites, finish-the-sentence, two truths and a lie, emoji</div></div>
@@ -4699,7 +4730,7 @@ function AudienceSheet({ value, onChange, onClose }) {
     ${(groups || []).map(function (g) {
       return html`<${Check} key=${g.id} on=${mode === "group" && gid === g.id} label=${g.name + " only"} sub=${g.group_members.length + " " + (g.group_members.length === 1 ? "person" : "people")} onClick=${function () { setMode("group"); setGid(g.id); }} />`;
     })}
-    ${groups && groups.length === 0 && html`<div className="muted" style=${{ fontSize: ".85rem", padding: ".4rem .2rem" }}>You have no groups yet. Make one under People, then My groups.</div>`}
+    ${groups && groups.length === 0 && html`<div className="muted" style=${{ fontSize: ".85rem", padding: ".4rem .2rem" }}>You have no groups yet. Make one under More, then My groups.</div>`}
     <${Check} on=${mode === "except"} label="Everyone except..." sub="Good for surprises" onClick=${function () { setMode("except"); }} />
     ${mode === "except" && html`<div className="plist">${people.map(function (p) {
       const on = ex.indexOf(p.id) >= 0;
@@ -5134,7 +5165,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
   const savedScroll = useRef(null);
 
   const loadProfiles = useCallback(async function () {
-    let r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day,cover_path,theme,top_friends,tz");
+    let r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day,birth_year,cover_path,theme,top_friends,tz");
     if (r.error) r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day,cover_path,theme,top_friends");
     if (r.error) r = await sb.from("profiles").select("id,display_name,bio,relation,role,status,created_at,avatar_path,birth_month,birth_day");   /* older database: themes not set up yet */
     const m = {};
@@ -5287,7 +5318,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
     switch (route.name) {
       case "home": return html`<${Home} />`;
       case "people": return html`<${People} />`;
-      case "memories": return html`<${Memories} />`;
+      case "memories": return html`<${Memories} root=${route === stack[0]} />`;
       case "me": return html`<${Profile} userId=${me.id} root=${true} />`;
       case "profile": return html`<${Profile} userId=${route.userId} root=${false} />`;
       case "post": return html`<${SinglePost} id=${route.id} />`;
@@ -5298,7 +5329,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "news": return html`<${NewsScreen} />`;
       case "album": return html`<${AlbumScreen} id=${route.id} />`;
       case "celebrations": return html`<${Celebrations} />`;
-      case "events": return html`<${Events} />`;
+      case "events": return html`<${Events} root=${route === stack[0]} />`;
       case "event": return html`<${EventScreen} id=${route.id} />`;
       case "call": return html`<${CallScreen} id=${route.id} key=${route.id} />`;
       case "wall": return html`<${PhotoWall} id=${route.id} />`;
@@ -5308,7 +5339,8 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "help": return html`<${HelpScreen} />`;
       case "polls": return html`<${PollsScreen} />`;
       case "capsules": return html`<${CapsuleScreen} />`;
-      case "chat": return html`<${ChatList} />`;
+      case "chat": return html`<${ChatList} root=${route === stack[0]} />`;
+      case "more": return html`<${MoreScreen} />`;
       case "chatroom": return html`<${ChatRoom} gid=${route.gid} key=${route.gid} />`;
       case "guesswho": return html`<${GuessWho} />`;
       case "theme": return html`<${ThemeEditor} />`;
@@ -5320,15 +5352,35 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
 
   const root = stack[0];
   const top = stack[stack.length - 1];
-  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "guesswho", "organizer", "groups", "prompt", "news", "album", "celebrations", "events", "event", "polls", "capsules", "chat"].indexOf(top.name) >= 0;
+  const hasNav = ["home", "people", "memories", "me", "profile", "post", "activity", "guesswho", "organizer", "groups", "prompt", "news", "album", "celebrations", "events", "event", "polls", "capsules", "chat", "more"].indexOf(top.name) >= 0;
+  /* the bottom bar slides away while you scroll down and comes back when you scroll up, reach the top or bottom, or change screens */
+  const [navHidden, setNavHidden] = useState(false);
+  useEffect(function () {
+    let last = window.scrollY, ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () {
+        ticking = false;
+        const y = window.scrollY, dy = y - last;
+        const atEnd = window.innerHeight + y >= document.documentElement.scrollHeight - 24;
+        if (y < 80 || atEnd || dy < -6) setNavHidden(false);
+        else if (dy > 10) setNavHidden(true);
+        if (Math.abs(dy) > 6) last = y;
+      });
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return function () { window.removeEventListener("scroll", onScroll); };
+  }, []);
+  useEffect(function () { setNavHidden(false); }, [stack.length, top.name]);
   const topKey = stack.length + ":" + top.name + (top.userId || top.postId || top.id || top.authorId || "");
 
   const tabs = [
     ["home", "Home", html`<${Icon} n="home" s=${26} fill=${root.name === "home" ? "currentColor" : "none"} sw=${root.name === "home" ? 2 : 1.8} />`],
-    ["people", "People", html`<${Icon} n="people" s=${26} fill=${root.name === "people" ? "currentColor" : "none"} />${pendingCount > 0 && html`<span className="badge" style=${{ top: ".15rem", right: "calc(50% - 1.5rem)" }}></span>`}`],
+    ["chat", "Chat", html`<${ChatTabIcon} active=${root.name === "chat"} />`],
     ["new", "Share", html`<${Icon} n="plus" s=${26} />`],
-    ["memories", "Memories", html`<${Icon} n="clock" s=${26} sw=${root.name === "memories" ? 2.6 : 1.8} />`],
-    ["me", "Me", html`<span style=${{ display: "flex", borderRadius: "50%", outline: root.name === "me" ? "2px solid #111" : "none", outlineOffset: "2px", marginBottom: "2px" }}><${Avatar} id=${me.id} name=${me.display_name} size=${26} /></span>`]
+    ["events", "Events", html`<${Icon} n="calendar" s=${26} fill=${root.name === "events" ? "currentColor" : "none"} />`],
+    ["more", "More", html`<span style=${{ position: "relative", display: "flex" }}><${Icon} n="more" s=${26} fill=${root.name === "more" ? "currentColor" : "none"} sw=${root.name === "more" ? 2.6 : 1.8} />${pendingCount > 0 && html`<span className="badge" style=${{ top: "-.1rem", right: "-.25rem" }}></span>`}</span>`]
   ];
 
   return html`
@@ -5338,7 +5390,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
         <div key=${"root-" + root.name} style=${{ display: deep ? "none" : "block" }}>${renderRoute(root)}</div>
         ${deep && html`<div key=${topKey}>${renderRoute(top)}</div>`}
       </div>
-      ${hasNav && html`<nav className="nav" aria-label="Main">${tabs.map(function (t) {
+      ${hasNav && html`<nav className=${"nav" + (navHidden ? " away" : "")} aria-label="Main" onFocus=${function () { setNavHidden(false); }}>${tabs.map(function (t) {
         return html`<button key=${t[0]} aria-label=${t[1]} onClick=${function () { t[0] === "new" ? push({ name: "new" }) : tab(t[0]); }}>${t[2]}<span className="lbl">${t[1]}</span></button>`;
       })}</nav>`}
       ${sheet && sheet.kind === "invite" && html`<${InviteSheet} existing=${sheet.existing} onClose=${function () { setSheet(null); }} />`}
