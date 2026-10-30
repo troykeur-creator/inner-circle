@@ -539,6 +539,72 @@ const EMOJI = [
   ["Symbols", "❤️ 💯 ✅ ☑️ ✔️ ❌ ❓ ❗ ‼️ ⭐ ✨ 💥 💢 💦 💨 💬 💭 🗯️ 💤 🔔 🔕 📣 🕊️ ☮️ ✝️ 🙏 ♾️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ ➕ ➖ ➡️ ⬅️ ⬆️ ⬇️ 🔝 🆕 🆒 🆗 🏳️‍🌈 🇺🇸 🏴"]
 ].map(function (c) { return { name: c[0], list: Array.from(new Set(c[1].split(" ").filter(Boolean))) }; });
 
+/* GIF search (GIPHY). Needs a free key in config.js as GIPHY_KEY; without one the GIF buttons just open the phone's files. */
+const GIPHY_API = "https://api.giphy.com/v1/gifs/";
+function GifSearchSheet({ onPick, onUpload, onClose }) {
+  const { toast } = useApp();
+  const [q, setQ] = useState("");
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState("");
+  const [more, setMore] = useState(false);
+  const [busyId, setBusyId] = useState("");
+  const off = useRef(0);
+  const load = useCallback(async function (term, append) {
+    setErr("");
+    try {
+      const o = append ? off.current : 0;
+      const url = GIPHY_API + (term ? "search" : "trending") + "?api_key=" + encodeURIComponent(cfg.GIPHY_KEY) + (term ? "&q=" + encodeURIComponent(term) : "") +
+        "&limit=24&offset=" + o + "&rating=g&lang=en&bundle=messaging_non_clips";
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(String(r.status));
+      const j = await r.json();
+      const got = j.data || [];
+      const list = got.filter(function (g) { return g.images && g.images.fixed_width_small && g.images.downsized; });
+      off.current = o + got.length;
+      setItems(function (cur) { return append && cur ? cur.concat(list) : list; });
+      setMore(got.length >= 24);
+    } catch (e) {
+      const m = String((e && e.message) || "");
+      setErr(m === "429" ? "GIF search is busy right now. Try again in a little while, or upload one from your phone."
+        : m === "401" || m === "403" ? "GIF search is not set up correctly (the key was refused). Upload one from your phone for now."
+        : "Could not reach GIF search. Check your internet, or upload one from your phone.");
+      setItems(function (cur) { return cur || []; });
+    }
+  }, []);
+  useEffect(function () {
+    const t = setTimeout(function () { load(q.trim(), false); }, q.trim() ? 450 : 0);
+    return function () { clearTimeout(t); };
+  }, [q, load]);
+  async function choose(g) {
+    if (busyId) return;
+    setBusyId(g.id);
+    try {
+      const r = await fetch(g.images.downsized.url);
+      if (!r.ok) throw new Error("download");
+      const blob = await r.blob();
+      const f = new File([blob], "gif-" + g.id + ".gif", { type: "image/gif" });
+      onClose();
+      onPick(f);
+    } catch (e) { toast("Could not download that GIF. Try another, or upload one from your phone."); setBusyId(""); }
+  }
+  return html`<${Sheet} title="Find a GIF" onClose=${onClose}>
+    <div className="row" style=${{ marginBottom: ".6rem" }}>
+      <label className="sr" htmlFor="gif-q">Search GIFs</label>
+      <input id="gif-q" className="field" type="search" placeholder="Search GIFs (birthday, hug, dance...)" value=${q} maxLength="60" onChange=${function (e) { setQ(e.target.value); }} />
+    </div>
+    <button className="linkbtn" style=${{ marginBottom: ".5rem" }} onClick=${function () { onClose(); onUpload(); }}>Upload one from my phone instead</button>
+    ${err && html`<div className="warnbox" role="alert">${err}</div>`}
+    ${items === null && html`<div className="center muted" style=${{ padding: "1.5rem" }}>Loading...</div>`}
+    ${items && items.length === 0 && !err && html`<div className="center muted" style=${{ padding: "1.5rem" }}>No GIFs found. Try another word.</div>`}
+    <div className="gifgrid">${(items || []).map(function (g) {
+      return html`<button key=${g.id} className=${"gifcell" + (busyId === g.id ? " busy" : "")} disabled=${!!busyId} aria-label=${"Use GIF: " + (g.title || "animated GIF")} onClick=${function () { choose(g); }}>
+        <img src=${g.images.fixed_width_small.url} alt="" loading="lazy" /></button>`;
+    })}</div>
+    ${more && html`<button className="btn grey block" style=${{ marginTop: ".6rem" }} onClick=${function () { load(q.trim(), true); }}>Show more</button>`}
+    <div className="muted" style=${{ fontSize: ".75rem", textAlign: "center", marginTop: ".7rem" }}>Powered by GIPHY. Only G-rated GIFs are shown.</div>
+  </${Sheet}>`;
+}
+
 function EmojiSheet({ onPick, onClose }) {
   const readRecent = function () { try { return JSON.parse(lsGet("ic-emoji-recent", "[]")) || []; } catch (e) { return []; } };
   const [recent, setRecent] = useState(readRecent);
@@ -1550,6 +1616,7 @@ function Comments({ postId }) {
   const [busy, setBusy] = useState(false);
   const input = useRef(null);
   const gifIn = useRef(null);
+  const [gifSheet, setGifSheet] = useState(false);
   const kb = useKeyboardInset();
   const QUICK = ["❤️", "😍", "🙌", "😂", "👏", "🔥"];
 
@@ -1661,6 +1728,7 @@ function Comments({ postId }) {
       ${tops.map(function (c) {
         return html`<div key=${c.id}>${row(c, false)}${repliesOf(c.id).map(function (r) { return row(r, true); })}</div>`;
       })}
+      ${gifSheet && html`<${GifSearchSheet} onPick=${function (f) { pickGif({ target: { files: [f] } }); }} onUpload=${function () { gifIn.current.click(); }} onClose=${function () { setGifSheet(false); }} />`}
       <div style=${{ height: "9rem" }}></div>
       <div className="composer2" style=${{ bottom: kb + "px", paddingBottom: kb > 0 ? ".5rem" : "calc(env(safe-area-inset-bottom, 0px) + .5rem)" }}>
         ${replyTo && html`<div className="replybar">Replying to <b>${authorOf(replyTo.author_id)}</b><button onClick=${function () { setReplyTo(null); setText(""); }} aria-label="Cancel reply">Cancel</button></div>`}
@@ -1669,7 +1737,7 @@ function Comments({ postId }) {
           <${Avatar} id=${me.id} name=${me.display_name} size=${34} />
           <${EmojiBtn} onPick=${function (em) { setText(function (t) { return (t + em).slice(0, 2000); }); if (input.current) input.current.focus(); }} />
           <input ref=${gifIn} type="file" accept="image/gif" onChange=${pickGif} style=${{ display: "none" }} />
-          <button type="button" className="ibtn" aria-label="Add a GIF" disabled=${busy} onClick=${function () { gifIn.current.click(); }}><${Icon} n="gif" s=${26} sw=${1.8} /></button>
+          <button type="button" className="ibtn" aria-label="Add a GIF" disabled=${busy} onClick=${function () { if (cfg.GIPHY_KEY) setGifSheet(true); else gifIn.current.click(); }}><${Icon} n="gif" s=${26} sw=${1.8} /></button>
           <label className="sr" htmlFor="cm-in">Add a comment</label>
           <input id="cm-in" ref=${input} type="text" value=${text} maxLength="2000"
             placeholder=${replyTo ? "Write a reply..." : "Add a comment..."}
@@ -1698,6 +1766,7 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
   const input = useRef(null);
   const vinput = useRef(null);
   const ginput = useRef(null);
+  const [gifSheet, setGifSheet] = useState(false);
   useEffect(function () {
     const since = new Date(Date.now() - 86400000).toISOString();
     sb.from("posts").select("created_at").eq("author_id", me.id).gt("video_seconds", SHORT_VIDEO_S).gte("created_at", since).order("created_at", { ascending: false }).limit(1)
@@ -1808,10 +1877,11 @@ function NewPost({ day, promptId, promptText, albumId, albumName }) {
       <input ref=${input} type="file" accept="image/*" multiple onChange=${pick} style=${{ display: "none" }} />
       <input ref=${vinput} type="file" accept="video/*" onChange=${pickVideo} style=${{ display: "none" }} />
       <input ref=${ginput} type="file" accept="image/gif" multiple onChange=${pick} style=${{ display: "none" }} />
+      ${gifSheet && html`<${GifSearchSheet} onPick=${function (f) { pick({ target: { files: [f] } }); }} onUpload=${function () { ginput.current.click(); }} onClose=${function () { setGifSheet(false); }} />`}
       ${!files.length && !video && html`<div className="pick2">
         <button onClick=${function () { input.current.click(); }}><${Icon} n="camera" s=${30} sw=${1.6} /><b>Photos</b><span>Up to ${MAX_PHOTOS} in one post</span></button>
         <button onClick=${function () { vinput.current.click(); }}><${Icon} n="play" s=${30} sw=${1.6} /><b>Video</b><span>${longAt ? "Up to 30 seconds. Longer opens at " + longAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "30 seconds, or 3 minutes once a day"}</span></button>
-        <button onClick=${function () { ginput.current.click(); }}><${Icon} n="gif" s=${30} sw=${1.6} /><b>GIF</b><span>Animated, up to 8 MB</span></button>
+        <button onClick=${function () { if (cfg.GIPHY_KEY) setGifSheet(true); else ginput.current.click(); }}><${Icon} n="gif" s=${30} sw=${1.6} /><b>GIF</b><span>${cfg.GIPHY_KEY ? "Search or upload" : "Animated, up to 8 MB"}</span></button>
       </div>`}
       <div className="row" style=${{ alignItems: "flex-start", padding: "1rem", borderBottom: "1px solid var(--soft)" }}>
         ${(files.length === 1 || video) && html`<button onClick=${function () { input.current.click(); }} aria-label=${files.length ? "Add more photos" : "Choose photos"}

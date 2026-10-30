@@ -336,6 +336,10 @@
   .duelav { border: 0; background: none; padding: 0; border-radius: 50%; }
   .pcard.nudge { background: linear-gradient(135deg, #e7e6ff, #dff3fb); }
 
+  .gifgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .gifcell { position: relative; padding: 0; border: 0; border-radius: .5rem; overflow: hidden; background: var(--soft); aspect-ratio: 1; cursor: pointer; }
+  .gifcell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gifcell.busy { opacity: .5; }
   .callbanner { background: linear-gradient(135deg, #d9f7e6, #dff3fb); }
   .callwrap { position: fixed; inset: 0; z-index: 55; background: #0b1d26; color: #fff; display: flex; flex-direction: column; }
   .callgrid { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; grid-template-columns: 1fr; grid-auto-rows: 1fr; position: relative; }
