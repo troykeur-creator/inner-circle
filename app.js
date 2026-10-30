@@ -941,7 +941,8 @@ function useOpenCalls() {
   const [calls, setCalls] = useState([]);
   useEffect(function () {
     const since = new Date(Date.now() - 3 * 3600000).toISOString();
-    sb.from("calls").select("*").is("ended_at", null).gte("created_at", since).order("created_at", { ascending: false })
+    const alive = new Date(Date.now() - 3 * 60000).toISOString();   /* a room nobody has checked in to for 3 minutes is treated as over */
+    sb.from("calls").select("*").is("ended_at", null).gte("created_at", since).gte("last_seen", alive).order("created_at", { ascending: false })
       .then(function (r) {
         setCalls((r.data || []).filter(function (c) { return !(c.invited || []).length || c.host_id === me.id || c.invited.indexOf(me.id) >= 0; }));
       }).catch(function () { setCalls([]); });
@@ -950,7 +951,7 @@ function useOpenCalls() {
 }
 
 function CallBanner() {
-  const { profiles, push, me } = useApp();
+  const { profiles, push, me, bump, toast } = useApp();
   const calls = useOpenCalls();
   if (!calls.length || !callSupported()) return null;
   return html`<div>${calls.slice(0, 2).map(function (c) {
@@ -958,7 +959,14 @@ function CallBanner() {
       <div className="grow"><div className="pk">📹 Video chat is on</div>
         <div className="pt">${c.host_id === me.id ? "Your room" : nm(profiles[c.host_id])}${c.title ? " · " + c.title : ""}</div>
         <div className="muted" style=${{ fontSize: ".75rem" }}>${"Started " + agoLong(c.created_at)}</div></div>
-      <button className="btn sm" onClick=${function () { push({ name: "call", id: c.id }); }}>${c.host_id === me.id ? "Rejoin" : "Join"}</button>
+      <div style=${{ display: "flex", flexDirection: "column", gap: ".2rem", alignItems: "stretch" }}>
+        <button className="btn sm" onClick=${function () { push({ name: "call", id: c.id }); }}>${c.host_id === me.id ? "Rejoin" : "Join"}</button>
+        ${(c.host_id === me.id || me.role === "admin") && html`<button className="linkbtn" onClick=${async function () {
+          if (!confirm("End this video chat for everyone?")) return;
+          const r = await sb.from("calls").update({ ended_at: new Date().toISOString() }).eq("id", c.id);
+          toast(r.error ? r.error.message : "Chat ended"); bump();
+        }}>End</button>`}
+      </div>
     </div>`;
   })}</div>`;
 }
@@ -1006,7 +1014,7 @@ function CallVideo({ stream, muted, mirror }) {
 }
 
 function CallScreen({ id }) {
-  const { me, profiles, back, toast } = useApp();
+  const { me, profiles, back, toast, bump } = useApp();
   const [call, setCall] = useState(undefined);
   const [phase, setPhase] = useState("lobby");     /* lobby | live */
   const [tiles, setTiles] = useState({});          /* person -> their video stream */
@@ -1160,7 +1168,13 @@ function CallScreen({ id }) {
     ch.on("broadcast", { event: "end" }, function () { toast("The host ended this chat."); leave(false, true); });
     ch.on("presence", { event: "sync" }, syncPeers);
     ch.subscribe(function (status) {
-      if (status === "SUBSCRIBED") { setPhase("live"); announce(); }
+      if (status === "SUBSCRIBED") {
+        setPhase("live"); announce();
+        const beat = function () { sb.from("calls").update({ last_seen: new Date().toISOString() }).eq("id", id).then(function () {}, function () {}); };
+        beat();
+        if (r.hb) clearInterval(r.hb);
+        r.hb = setInterval(beat, 30000);
+      }
       else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         setErr("Could not connect the chat. Check your internet. If this keeps happening, the organizer needs to run the latest SQL (Round 9).");
         cleanup();
@@ -1169,9 +1183,18 @@ function CallScreen({ id }) {
     });
     setBusy(false);
   }
+  function endIfAlone() {   /* whoever is last out closes the room, however they leave */
+    const r = R.current;
+    try {
+      if (!r.live || !r.ch) return;
+      const alone = Object.keys(r.ch.presenceState()).filter(function (k) { return k !== me.id; }).length === 0;
+      if (alone) sb.from("calls").update({ ended_at: new Date().toISOString() }).eq("id", id).then(function () {}, function () {});
+    } catch (e) {}
+  }
   function cleanup() {
     const r = R.current;
     r.live = false;
+    if (r.hb) { clearInterval(r.hb); r.hb = null; }
     Object.keys(r.peers).forEach(closePeer);
     if (r.local) { r.local.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); r.local = null; }
     if (r.ch) { try { r.ch.untrack(); } catch (e) {} try { sb.removeChannel(r.ch); } catch (e) {} r.ch = null; }
@@ -1186,11 +1209,12 @@ function CallScreen({ id }) {
     cleanup();
     if (endForAll || alone) { try { await sb.from("calls").update({ ended_at: new Date().toISOString() }).eq("id", id); } catch (e) {} }
     back();
+    bump();
   }
   useEffect(function () {
-    function bye() { cleanup(); }
+    function bye() { endIfAlone(); cleanup(); }
     window.addEventListener("pagehide", bye);
-    return function () { window.removeEventListener("pagehide", bye); cleanup(); };
+    return function () { window.removeEventListener("pagehide", bye); endIfAlone(); cleanup(); };
   }, []);
   /* if the phone wakes up with the screen lock released, ask for it again */
   useEffect(function () {
