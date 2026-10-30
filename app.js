@@ -1509,11 +1509,14 @@ function Home() {
   const noteBy = {};
   notes.forEach(function (n) { noteBy[n.user_id] = n; });
   const trayIds = Object.keys(groups).concat(Object.keys(noteBy).filter(function (id) { return !groups[id]; })).filter(function (id) { return id !== me.id; });
-  const others = trayIds.map(function (id) {
-    return { id: id, hasStory: !!groups[id], allSeen: groups[id] ? groups[id].every(function (x) { return seen.has(x); }) : true };
+  /* everyone is in the row: people with a fresh day or note first, then the rest of the family (tap to open their page) */
+  const restIds = Object.keys(profiles).filter(function (id) { return id !== me.id && profiles[id].status === "approved" && trayIds.indexOf(id) < 0; })
+    .sort(function (a, b) { return nm(profiles[a]).localeCompare(nm(profiles[b])); });
+  const others = trayIds.concat(restIds).map(function (id) {
+    return { id: id, hasStory: !!groups[id], plain: !groups[id] && !noteBy[id], allSeen: groups[id] ? groups[id].every(function (x) { return seen.has(x); }) : true };
   }).sort(function (a, b) {
-    const ra = a.hasStory && !a.allSeen ? 0 : a.hasStory ? 1 : 2;
-    const rb = b.hasStory && !b.allSeen ? 0 : b.hasStory ? 1 : 2;
+    const ra = a.plain ? 3 : a.hasStory && !a.allSeen ? 0 : a.hasStory ? 1 : 2;
+    const rb = b.plain ? 3 : b.hasStory && !b.allSeen ? 0 : b.hasStory ? 1 : 2;
     return ra - rb;
   });
   const myNote = noteBy[me.id];
@@ -1548,9 +1551,9 @@ function Home() {
           const note = noteBy[g.id];
           return html`<div className="story" key=${g.id}>
             ${note && html`<button className="tbub" onClick=${function () { setNoteSheet({ own: false, note: note }); }}>${note.body}</button>`}
-            <button className="storybtn" aria-label=${g.hasStory ? "View " + nm(p) + "'s day" : "Read " + nm(p) + "'s note"} onClick=${function () { g.hasStory ? push({ name: "story", authorId: g.id }) : setNoteSheet({ own: false, note: note }); }}>
+            <button className="storybtn" aria-label=${g.plain ? "Open " + nm(p) + "'s page" : g.hasStory ? "View " + nm(p) + "'s day" : "Read " + nm(p) + "'s note"} onClick=${function () { g.plain ? push({ name: "profile", userId: g.id }) : g.hasStory ? push({ name: "story", authorId: g.id }) : setNoteSheet({ own: false, note: note }); }}>
               <div className=${"ring " + (g.hasStory ? (g.allSeen ? "seen" : "") : "none")}><${Avatar} id=${g.id} name=${p.display_name} size=${52} /></div>
-              <div className="slabel" style=${{ color: g.hasStory && g.allSeen ? "var(--muted)" : "inherit" }}>${nm(p)}</div>
+              <div className="slabel" style=${{ color: g.plain || (g.hasStory && g.allSeen) ? "var(--muted)" : "inherit" }}>${nm(p)}</div>
             </button>
           </div>`;
         })}
