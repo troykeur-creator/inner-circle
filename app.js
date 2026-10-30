@@ -2244,15 +2244,25 @@ const FAVS = [
   { g: 3, k: "sizes", e: "📏", l: "Sizes for gift giving", ph: "Shirt L, shoe 10, ring 9", wide: true },
   { g: 3, k: "stores", e: "🏪", l: "Stores and gift cards I like", ph: "Home Depot, Amazon, Starbucks", wide: true }
 ];
-const LOVES = ["Sunday dinners", "Road trips", "The beach", "Mountains", "Gardening", "Board games", "Football", "Baking", "Live music", "Old movies", "Coffee", "Camping", "Reading", "Dogs", "Cats", "Fishing", "Cooking", "History", "Crafts", "Dancing", "Holidays", "Family stories", "Puzzles", "Grilling", "Karaoke", "Thrift stores", "Sunrises", "Thunderstorms", "Naps", "Trivia night", "Hiking", "Golf", "Boats", "Jeeps", "Photography", "Shopping", "Movie nights", "Bonfires"];
-const NOTS = ["Crowds", "Spicy food", "Early mornings", "Horror movies", "Cilantro", "Traffic", "Loud restaurants", "Flying", "Cold weather", "Small talk", "Mushrooms", "Running late", "Surprises", "Phone calls", "Heights", "Bugs", "Mondays", "Group photos", "Being late", "Reality TV"];
+const LOVES = ["Sunday dinners", "Road trips", "The beach", "Mountains", "Gardening", "Board games", "Football", "Baking", "Live music", "Old movies", "Coffee", "Camping", "Reading", "Dogs", "Cats", "Fishing", "Cooking", "History", "Crafts", "Dancing", "Holidays", "Family stories", "Puzzles", "Grilling", "Karaoke", "Thrift stores", "Sunrises", "Thunderstorms", "Naps", "Trivia night", "Hiking", "Golf", "Boats", "Jeeps", "Photography", "Shopping", "Movie nights", "Bonfires", "Farmers markets", "Fresh bread", "Rainy days", "Fall leaves", "Snow days", "Fireworks", "Barbecue", "Ice cream", "Pancakes", "Breakfast for dinner", "Family reunions", "Swimming", "Kayaking", "Four-wheeling", "Car shows", "Flea markets", "Antiques", "Baseball", "Basketball", "College football", "Concerts", "Podcasts", "Audiobooks", "True crime", "Documentaries", "Cooking shows", "Scrapbooking", "Knitting", "Woodworking", "Yard work", "Birdwatching", "Stargazing", "Sleeping in", "Sunday drives", "Picnics", "Taking pictures", "Dad jokes", "Handwritten notes", "Big hugs", "Game day", "Tailgating", "Lake days", "Tacos", "Pizza night", "Pie", "Cozy blankets", "Music from the 80s", "Country music", "Travel", "Learning new things", "Volunteering", "Church potlucks", "Backyard cookouts"];
+const NOTS = ["Crowds", "Spicy food", "Early mornings", "Horror movies", "Cilantro", "Traffic", "Loud restaurants", "Flying", "Cold weather", "Small talk", "Mushrooms", "Running late", "Surprises", "Phone calls", "Heights", "Bugs", "Mondays", "Group photos", "Being late", "Reality TV", "Rude drivers", "Long lines", "Slow Wi-Fi", "Spam calls", "Dirty dishes", "Doing laundry", "Wet socks", "Humid weather", "Sunburn", "Snakes", "Spiders", "Roller coasters", "Karaoke in public", "Being on camera", "Cold pizza", "Olives", "Raisins in cookies", "Pineapple on pizza", "Overcooked steak", "Early flights", "Airport layovers", "Loud chewing", "Gossip", "Drama", "Spoilers", "Being the center of attention", "Shopping on Black Friday", "Cleaning the garage"];
 const DUELS = [
   ["coffee", "Coffee", "Tea"], ["place", "Beach", "Mountains"], ["taste", "Sweet", "Salty"], ["clock", "Early bird", "Night owl"],
   ["talk", "Call me", "Text me"], ["pet", "Dogs", "Cats"], ["style", "Homebody", "Adventurer"], ["season", "Summer", "Winter"],
   ["pizza2", "Thin crust", "Deep dish"], ["choc", "Chocolate", "Vanilla"], ["night", "Movie night", "Game night"], ["plan", "Planner", "Go with the flow"],
   ["trip", "Road trip", "Plane ride"], ["gifts", "Giving gifts", "Getting gifts"], ["cook", "Cooking at home", "Eating out"], ["hol", "Christmas", "Thanksgiving"],
   ["party", "Big party", "Quiet gathering"], ["sun", "Sunrise", "Sunset"], ["save", "Saver", "Spender"], ["sing", "Sing along", "Listen quietly"],
-  ["morning", "Breakfast", "Dinner"], ["book", "Book", "Movie"], ["cold", "Hot weather", "Cold weather"], ["gift2", "Handmade", "Store bought"]
+  ["morning", "Breakfast", "Dinner"], ["book", "Book", "Movie"], ["cold", "Hot weather", "Cold weather"], ["gift2", "Handmade", "Store bought"],
+  ["pie", "Pie", "Cake"], ["wings", "Boneless wings", "Bone-in wings"], ["breakf", "Pancakes", "Waffles"], ["fries", "French fries", "Onion rings"],
+  ["bbq", "Grill", "Smoker"], ["steak", "Steak", "Seafood"], ["tacos", "Tacos", "Burgers"], ["soda", "Soda", "Sparkling water"],
+  ["dive", "Lake", "Pool"], ["camp", "Camping", "Hotel"], ["cabin", "Cabin", "Beach house"], ["drive", "Driver", "Passenger"],
+  ["music", "Country", "Rock"], ["radio", "Radio", "Playlist"], ["fall", "Fall", "Spring"], ["snow", "Snow day", "Sunny day"],
+  ["fb", "Football", "Basketball"], ["watch", "Watch the game", "Play the game"], ["tv", "Binge a series", "One movie"], ["comedy", "Comedy", "Drama"],
+  ["scary", "Scary movie", "Feel-good movie"], ["read", "Paper book", "Audiobook"], ["news", "Morning news", "Evening news"], ["shop", "Online shopping", "In the store"],
+  ["spend", "Experiences", "Things"], ["list", "Make a list", "Wing it"], ["early", "Arrive early", "Fashionably late"], ["tidy", "Tidy desk", "Creative mess"],
+  ["fix", "Fix it myself", "Call someone"], ["hot", "Hot sauce", "Mild"], ["nap", "Power nap", "Full night's sleep"], ["photo", "Selfie", "Group photo"],
+  ["text2", "Voice message", "Typed text"], ["gift3", "Gift card", "Surprise gift"], ["host", "Host the party", "Be the guest"], ["santa", "Real tree", "Artificial tree"],
+  ["lights", "White lights", "Colored lights"], ["cookie", "Chocolate chip", "Sugar cookie"], ["leftover", "Leftovers", "Fresh made"], ["dish", "Wash", "Dry"]
 ];
 const SENTENCES = [
   ["happy", "I am happiest when..."], ["find", "You can always find me..."], ["say", "My family would say I am..."], ["perfect", "My perfect Sunday is..."],
@@ -2385,10 +2395,10 @@ function PrefsEditor() {
       ${!tlOk && (tl.t.some(function (s) { return s.trim(); }) || tl.lie >= 0) && html`<div className="muted" style=${{ fontSize: ".85rem" }}>Fill in all three and mark the lie to save this one.</div>`}</div>
 
     ${H("Things I love", "Tap all that fit, or add your own.")}
-    <div style=${{ padding: "0 1rem" }}><${Chips} options=${LOVES} picked=${loves} max=${20} tone="love" onToggle=${tog(loves, setLoves)} onAdd=${function (v) { setLoves(loves.concat([v])); }} /></div>
+    <div style=${{ padding: "0 1rem" }}><${Chips} options=${LOVES} picked=${loves} max=${30} tone="love" onToggle=${tog(loves, setLoves)} onAdd=${function (v) { setLoves(loves.concat([v])); }} /></div>
 
     ${H("Not so much", "")}
-    <div style=${{ padding: "0 1rem" }}><${Chips} options=${NOTS} picked=${nots} max=${16} tone="not" onToggle=${tog(nots, setNots)} onAdd=${function (v) { setNots(nots.concat([v])); }} /></div>
+    <div style=${{ padding: "0 1rem" }}><${Chips} options=${NOTS} picked=${nots} max=${24} tone="not" onToggle=${tog(nots, setNots)} onAdd=${function (v) { setNots(nots.concat([v])); }} /></div>
 
     ${H("This or that", "Tap your pick. Tap again to clear.")}
     <div style=${{ padding: "0 1rem" }}>${DUELS.map(function (d) {
@@ -3937,6 +3947,7 @@ function PollCard({ poll, opts, votes, onChange }) {
   const { me, profiles, toast } = useApp();
   const [busy, setBusy] = useState(false);
   const [sure, setSure] = useState(false);
+  const [editing, setEditing] = useState(false);
   const closed = pollClosed(poll);
   const voters = {};
   (votes || []).forEach(function (v) { voters[v.user_id] = 1; });
@@ -3974,43 +3985,54 @@ function PollCard({ poll, opts, votes, onChange }) {
     })}
     <div className="row" style=${{ justifyContent: "space-between", alignItems: "center", marginTop: ".4rem" }}>
       <div className="muted" style=${{ fontSize: ".8rem" }}>${total} ${total === 1 ? "person has" : "people have"} voted${poll.closes_at ? " · " + closesText(poll) : ""}</div>
-      ${canDel && (sure ? html`<button className="btn sm grey" onClick=${del}>Really delete</button>` : html`<button className="btn sm grey" onClick=${function () { setSure(true); }}>Delete</button>`)}
+      ${canDel && html`<div className="row" style=${{ gap: ".4rem" }}><button className="btn sm grey" onClick=${function () { setEditing(true); }}>Edit</button>
+        ${sure ? html`<button className="btn sm grey" onClick=${del}>Really delete</button>` : html`<button className="btn sm grey" onClick=${function () { setSure(true); }}>Delete</button>`}</div>`}
     </div>
+    ${editing && html`<${NewPollSheet} poll=${poll} opts=${opts} votes=${votes} onClose=${function () { setEditing(false); }} onDone=${onChange} />`}
   </div>`;
 }
-function NewPollSheet({ onClose, onDone }) {
+function NewPollSheet({ onClose, onDone, poll, opts, votes }) {
   const { toast } = useApp();
-  const [q, setQ] = useState("");
-  const [os, setOs] = useState(["", ""]);
-  const [multi, setMulti] = useState(false);
-  const [days, setDays] = useState(0);
+  const editing = !!poll;
+  const [q, setQ] = useState(editing ? poll.question : "");
+  const [os, setOs] = useState(editing ? (opts || []).map(function (o) { return { id: o.id, label: o.label }; }) : [{ id: null, label: "" }, { id: null, label: "" }]);
+  const [multi, setMulti] = useState(editing ? !!poll.multi : false);
+  const [days, setDays] = useState(editing ? -1 : 0);   /* -1 = leave the closing time as it is */
   const [busy, setBusy] = useState(false);
+  const votesFor = function (id) { return (votes || []).filter(function (v) { return v.option_id === id; }).length; };
   async function go() {
-    const clean = os.map(function (x) { return x.trim(); }).filter(Boolean);
+    const clean = os.map(function (x) { return { id: x.id, label: x.label.trim() }; }).filter(function (x) { return x.label; });
     if (!q.trim()) { toast("Write your question first."); return; }
     if (clean.length < 2) { toast("Add at least two choices."); return; }
+    const lost = editing ? (opts || []).filter(function (o) { return !clean.some(function (c) { return c.id === o.id; }) && votesFor(o.id) > 0; }) : [];
+    if (lost.length && !confirm("Removing " + lost.map(function (o) { return '"' + o.label + '"'; }).join(", ") + " also removes the votes it has. Continue?")) return;
     setBusy(true);
-    const closes = days ? new Date(Date.now() + days * 86400000).toISOString() : null;
-    const r = await sb.rpc("create_poll", { p_question: q.trim(), p_options: clean, p_multi: multi, p_closes: closes });
+    const closes = days === -1 ? (poll.closes_at || null) : days ? new Date(Date.now() + days * 86400000).toISOString() : null;
+    const r = editing
+      ? await sb.rpc("edit_poll", { p_poll: poll.id, p_question: q.trim(), p_options: clean.map(function (c) { return c.id ? { id: c.id, label: c.label } : { label: c.label }; }), p_multi: multi, p_closes: closes })
+      : await sb.rpc("create_poll", { p_question: q.trim(), p_options: clean.map(function (c) { return c.label; }), p_multi: multi, p_closes: closes });
     setBusy(false);
     if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
-    toast("Poll posted"); onDone(); onClose();
+    toast(editing ? "Poll updated" : "Poll posted"); onDone(); onClose();
   }
-  return html`<${Sheet} title="Ask the family" onClose=${onClose}>
+  return html`<${Sheet} title=${editing ? "Edit poll" : "Ask the family"} onClose=${onClose}>
     <label htmlFor="poll-q" style=${{ fontWeight: 600 }}>Your question</label>
     <input id="poll-q" className="field" style=${{ marginTop: ".3rem" }} maxLength="140" placeholder="Example: Which day works for brunch?" value=${q} onChange=${function (e) { setQ(e.target.value); }} />
     <div style=${{ fontWeight: 600, margin: "1rem 0 .3rem" }}>Choices</div>
     ${os.map(function (v, i) {
-      return html`<input key=${i} className="field" style=${{ marginBottom: ".4rem" }} maxLength="60" aria-label=${"Choice " + (i + 1)} placeholder=${"Choice " + (i + 1)} value=${v} onChange=${function (e) { const val = e.target.value; setOs(function (a) { return a.map(function (x, j) { return j === i ? val : x; }); }); }} />`;
+      return html`<div className="row" key=${v.id || "new" + i} style=${{ gap: ".4rem", marginBottom: ".4rem" }}>
+        <input className="field grow" maxLength="60" aria-label=${"Choice " + (i + 1)} placeholder=${"Choice " + (i + 1)} value=${v.label} onChange=${function (e) { const val = e.target.value; setOs(function (a) { return a.map(function (x, j) { return j === i ? { id: x.id, label: val } : x; }); }); }} />
+        ${editing && os.length > 2 && html`<button type="button" className="ibtn" aria-label=${"Remove choice " + (i + 1)} onClick=${function () { setOs(os.filter(function (x, j) { return j !== i; })); }}><${Icon} n="close" s=${20} sw=${2} /></button>`}
+      </div>`;
     })}
-    ${os.length < 6 && html`<button className="btn sm grey" onClick=${function () { setOs(os.concat([""])); }}>+ Add a choice</button>`}
+    ${os.length < 6 && html`<button className="btn sm grey" onClick=${function () { setOs(os.concat([{ id: null, label: "" }])); }}>+ Add a choice</button>`}
     <div className="opt" style=${{ marginTop: ".6rem" }}><div className="grow">Allow more than one answer</div>
       <button role="switch" aria-checked=${multi} aria-label="Allow more than one answer" className=${"switch " + (multi ? "on" : "")} onClick=${function () { setMulti(!multi); }}><i></i></button></div>
     <div style=${{ fontWeight: 600, margin: ".6rem 0 .3rem" }}>Closes</div>
-    <div className="chips">${[[0, "Never"], [1, "1 day"], [3, "3 days"], [7, "1 week"]].map(function (d) {
+    <div className="chips">${(editing ? [[-1, poll.closes_at ? (pollClosed(poll) ? "Stay closed" : "Keep as is") : "Keep as is"]] : []).concat([[0, "Never"], [1, "1 day"], [3, "3 days"], [7, "1 week"]]).map(function (d) {
       return html`<button key=${d[0]} type="button" className=${"chip love" + (days === d[0] ? " on" : "")} aria-pressed=${days === d[0]} onClick=${function () { setDays(d[0]); }}>${d[1]}</button>`;
     })}</div>
-    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${go}>${busy ? "Posting..." : "Post poll"}</button></div>
+    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${go}>${busy ? "Saving..." : editing ? "Save changes" : "Post poll"}</button></div>
   </${Sheet}>`;
 }
 function PollsScreen() {
@@ -4482,7 +4504,7 @@ function HelpScreen() {
       </div>`)}
       ${sec("Chat, polls and time capsules", false, html`<div>
         <p><b>Family chat:</b> tap <b>Chat</b> at the bottom. "Everyone" is the whole Inner Circle; each of your groups has its own room. Messages are text and emoji. Tap a message to delete your own. Organizers can delete any message.</p>
-        <p><b>Polls:</b> More, then Polls. Tap a choice to vote, tap it again to take your vote back. Everyone can see who voted for what.</p>
+        <p><b>Polls:</b> More, then Polls. Tap a choice to vote, tap it again to take your vote back. Everyone can see who voted for what. The person who asked (or an organizer) can tap Edit to fix the question, add or remove choices, or change the closing time.</p>
         <p><b>Time capsules:</b> More, then Time capsules. A letter stays hidden from everyone but you until the day you choose, then the people it is for get a notification. You can delete a letter before it opens. As with everything stored here, whoever runs the app has technical access.</p>
         <p>Your time zone is saved automatically so family can see your local time on your profile. You can turn that off in Settings (Show my local time); the app still keeps it privately so quiet hours work.</p>
       </div>`)}
