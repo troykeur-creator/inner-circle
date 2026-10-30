@@ -2857,7 +2857,8 @@ function buildCelebrations(profiles, anniv) {
   });
   (anniv || []).forEach(function (a) {
     const dt = occurrence(a.month, a.day);
-    list.push({ kind: "anniversary", key: a.id, title: a.title, name: a.title, m: a.month, d: a.day, dt: dt, days: daysAway(dt), year: dt.getFullYear(), years: a.year ? dt.getFullYear() - a.year : 0, anniv: a });
+    const bday = a.kind === "birthday";   /* a birthday for someone who is not in the app (a grandparent, a cousin's baby) */
+    list.push({ kind: bday ? "birthday" : "anniversary", key: a.id, title: bday ? a.title + "'s birthday" : a.title, name: a.title, m: a.month, d: a.day, dt: dt, days: daysAway(dt), year: dt.getFullYear(), years: a.year ? dt.getFullYear() - a.year : 0, anniv: a });
   });
   return list.sort(function (x, y) { return x.days - y.days || String(x.name).localeCompare(String(y.name)); });
 }
@@ -2890,39 +2891,44 @@ function MonthDay({ m, d, onM, onD, idp, y, onY }) {
   </div>`;
 }
 
-function AnnivForm({ item, onClose, onSaved }) {
+function AnnivForm({ item, onClose, onSaved, startKind }) {
   const { me, toast } = useApp();
+  const [kind, setKind] = useState(item ? (item.kind === "birthday" ? "birthday" : "anniversary") : (startKind || "anniversary"));
+  const isB = kind === "birthday";
   const [title, setTitle] = useState(item ? item.title : "");
   const [m, setM] = useState(item ? item.month : 0);
   const [d, setD] = useState(item ? item.day : 0);
   const [yr, setYr] = useState(item && item.year ? String(item.year) : "");
   const [busy, setBusy] = useState(false);
   async function save() {
-    if (!title.trim()) { toast("Who is celebrating? Type the names."); return; }
+    if (!title.trim()) { toast(isB ? "Whose birthday is it? Type their name." : "Who is celebrating? Type the names."); return; }
     if (!m || !d) { toast("Pick the month and the day."); return; }
     const y = yr.trim() ? parseInt(yr, 10) : null;
     if (y !== null && (!(y >= 1900 && y <= 2100))) { toast("Type a four-digit year, or leave it blank."); return; }
     setBusy(true);
-    const row = { title: title.trim(), month: m, day: Math.min(d, DIM[m - 1]), year: y };
+    const row = Object.assign({ title: title.trim(), month: m, day: Math.min(d, DIM[m - 1]), year: y }, isB || (item && item.kind) ? { kind: kind } : {});   /* older databases have no kind column; only send it for birthdays */
     const r = item ? await sb.from("anniversaries").update(row).eq("id", item.id) : await sb.from("anniversaries").insert(Object.assign({ created_by: me.id }, row));
     setBusy(false);
     if (r.error) { toast(r.error.message); return; }
-    toast(item ? "Saved" : "Anniversary added");
+    toast(item ? "Saved" : isB ? "Birthday added" : "Anniversary added");
     onSaved();
   }
   async function del() {
-    if (!confirm("Delete this anniversary?")) return;
+    if (!confirm(isB ? "Delete this birthday?" : "Delete this anniversary?")) return;
     const r = await sb.from("anniversaries").delete().eq("id", item.id);
     if (r.error) { toast(r.error.message); return; }
     toast("Deleted"); onSaved();
   }
-  return html`<${Sheet} title=${item ? "Edit anniversary" : "Add an anniversary"} onClose=${onClose}>
-    <label htmlFor="an-t" className="flabel">Who is celebrating?</label>
-    <input id="an-t" className="field" maxLength="80" placeholder="Example: Aunt Maria and Uncle Dev" value=${title} onChange=${function (e) { setTitle(e.target.value); }} />
+  return html`<${Sheet} title=${item ? (isB ? "Edit birthday" : "Edit anniversary") : "Add a special day"} onClose=${onClose}>
+    ${!item && html`<div className="chips" style=${{ marginBottom: ".4rem" }}>
+      <button type="button" className=${"chip pick" + (!isB ? " on" : "")} aria-pressed=${!isB} onClick=${function () { setKind("anniversary"); }}>💍 Anniversary</button>
+      <button type="button" className=${"chip pick" + (isB ? " on" : "")} aria-pressed=${isB} onClick=${function () { setKind("birthday"); }}>🎂 Birthday</button></div>`}
+    <label htmlFor="an-t" className="flabel">${isB ? "Whose birthday?" : "Who is celebrating?"}</label>
+    <input id="an-t" className="field" maxLength="80" placeholder=${isB ? "Example: Grandma Rose" : "Example: Aunt Maria and Uncle Dev"} value=${title} onChange=${function (e) { setTitle(e.target.value); }} />
     <div className="flabel">Date</div>
     <${MonthDay} idp="an" m=${m} d=${d} onM=${setM} onD=${setD} />
-    <label htmlFor="an-y" className="flabel">Year they married (optional, shows how many years)</label>
-    <input id="an-y" className="field" inputMode="numeric" maxLength="4" placeholder="Example: 1999" value=${yr} onChange=${function (e) { setYr(e.target.value.replace(/[^0-9]/g, "")); }} />
+    <label htmlFor="an-y" className="flabel">${isB ? "Birth year (optional, shows the age they are turning)" : "Year they married (optional, shows how many years)"}</label>
+    <input id="an-y" className="field" inputMode="numeric" maxLength="4" placeholder=${isB ? "Example: 1950" : "Example: 1999"} value=${yr} onChange=${function (e) { setYr(e.target.value.replace(/[^0-9]/g, "")); }} />
     <div className="row" style=${{ marginTop: "1rem" }}>
       ${item && html`<button className="btn danger" onClick=${del}>Delete</button>`}
       <button className="btn grey grow" onClick=${onClose}>Cancel</button>
@@ -2992,7 +2998,7 @@ function WishSheet({ c, onClose, onEdit }) {
     await sb.from("wishes").delete().eq("id", mine.id);
     setText(""); load();
   }
-  const canEdit = c.kind === "anniversary" && c.anniv && (c.anniv.created_by === me.id || me.role === "admin");
+  const canEdit = !!c.anniv && (c.anniv.created_by === me.id || me.role === "admin");
   const isMe = c.kind === "birthday" && c.key === me.id;
   return html`<${Sheet} title=${(c.kind === "birthday" ? "🎂 " : "💍 ") + c.title} onClose=${onClose}>
     <div className="muted" style=${{ marginTop: "-.3rem", marginBottom: ".8rem" }}>${fmtMD(c.m, c.d)} · ${awayLabel(c.days)}${ageText(c)}</div>
@@ -3009,7 +3015,7 @@ function WishSheet({ c, onClose, onEdit }) {
         ${mine && html`<button className="btn grey" onClick=${removeMine}>Remove</button>`}
         <button className="btn grow" disabled=${busy || !text.trim()} onClick=${send}>${busy ? "Sending..." : mine ? "Update my wish" : "Send wish"}</button>
       </div></div>`}
-    ${canEdit && html`<div style=${{ textAlign: "center", marginTop: ".6rem" }}><button className="linkbtn" onClick=${function () { onEdit(c.anniv); }}>Edit or delete this anniversary</button></div>`}
+    ${canEdit && html`<div style=${{ textAlign: "center", marginTop: ".6rem" }}><button className="linkbtn" onClick=${function () { onEdit(c.anniv); }}>Edit or delete this</button></div>`}
   </${Sheet}>`;
 }
 
@@ -3036,7 +3042,7 @@ function Celebrations() {
   const missing = Object.keys(profiles).map(function (k) { return profiles[k]; }).filter(function (p) { return p.status === "approved" && !p.birth_month; });
   const iMissing = !(profiles[me.id] && profiles[me.id].birth_month);
   function lead(c) {
-    return c.kind === "birthday" ? html`<${Avatar} id=${c.key} name=${c.name} size=${46} />` : html`<span className="emo">💍</span>`;
+    return c.kind === "birthday" ? (c.anniv ? html`<span className="emo">🎂</span>` : html`<${Avatar} id=${c.key} name=${c.name} size=${46} />`) : html`<span className="emo">💍</span>`;
   }
   function row(c) {
     return html`<button className="listrow" key=${c.kind + c.key} onClick=${function () { setCard(c); }}>
@@ -3061,17 +3067,20 @@ function Celebrations() {
     })}</div>`}
     ${an.rows && soon.length > 0 && html`<div className="hdr">Coming up</div>`}
     ${an.rows && soon.map(row)}
-    ${an.rows && list.length === 0 && html`<div className="center muted" style=${{ padding: "2.5rem 1.5rem" }}>No special days yet. Add your birthday in Edit profile, and add anniversaries with the Add button.</div>`}
+    ${an.rows && list.length === 0 && html`<div className="center muted" style=${{ padding: "2.5rem 1.5rem" }}>No special days yet. Add your birthday in Settings, and add anyone else's birthday or anniversary with the Add button.</div>`}
     ${an.rows && html`<div style=${{ padding: "1rem" }}>
       ${iMissing && html`<button className="btn block" style=${{ marginBottom: ".6rem" }} onClick=${function () { push({ name: "settings" }); }}>Add my birthday</button>`}
-      <button className="btn grey block" onClick=${function () { setForm({}); }}>Add an anniversary</button>
+      <div className="row" style=${{ gap: ".6rem" }}>
+        <button className="btn grey grow" onClick=${function () { setForm({ startKind: "birthday" }); }}>🎂 Add a birthday</button>
+        <button className="btn grey grow" onClick=${function () { setForm({ startKind: "anniversary" }); }}>💍 Add an anniversary</button>
+      </div>
       ${(me.role === "admin" || missing.length > 0) && missing.length > 0 && html`<div style=${{ marginTop: ".9rem", textAlign: "center" }}>
         <div className="muted" style=${{ fontSize: ".85rem" }}>${missing.length} ${missing.length === 1 ? "person has" : "people have"} not added a birthday yet.</div>
-        ${me.role === "admin" && html`<button className="linkbtn" onClick=${function () { setBf(true); }}>Add a birthday for someone</button>`}
+        ${me.role === "admin" && html`<button className="linkbtn" onClick=${function () { setBf(true); }}>Set a birthday for a member who has not added one</button>`}
       </div>`}
     </div>`}
     ${card && html`<${WishSheet} c=${card} onClose=${function () { setCard(null); }} onEdit=${function (a) { setCard(null); setForm(a); }} />`}
-    ${form && html`<${AnnivForm} item=${form.id ? form : null} onClose=${function () { setForm(null); }} onSaved=${function () { setForm(null); an.reload(); bump(); }} />`}
+    ${form && html`<${AnnivForm} item=${form.id ? form : null} startKind=${form.startKind} onClose=${function () { setForm(null); }} onSaved=${function () { setForm(null); an.reload(); bump(); }} />`}
     ${bf && html`<${BirthdayForSheet} onClose=${function () { setBf(false); }} onSaved=${function () { setBf(false); bump(); }} />`}
   </div>`;
 }
