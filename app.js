@@ -855,6 +855,10 @@ function PostCard({ post, onChange, albumId }) {
     setMenu(false);
     if (!confirm("Delete this post for everyone? This cannot be undone.")) return;
     const gone = allPaths(post);
+    try {   /* photos, videos and GIFs in its comments go too */
+      const cm = await sb.from("comments").select("gif_path,media_path,media_poster").eq("post_id", post.id);
+      (cm.data || []).forEach(function (c) { [c.gif_path, c.media_path, c.media_poster].forEach(function (p) { if (p) gone.push(p); }); });
+    } catch (e) {}
     const r = await sb.from("posts").delete().eq("id", post.id);
     if (r.error) { toast(r.error.message); return; }
     if (gone.length) sb.storage.from("photos").remove(gone);
@@ -968,6 +972,18 @@ function useOpenCalls() {
   return calls;
 }
 
+/* Video chat needs the installed app on a phone or tablet (not a browser tab): it keeps the camera, the connection and the "in the app" dots reliable. */
+function isPhoneOrTablet() { return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "") || isIOS(); }
+function callsNeedInstall() { return isPhoneOrTablet() && !isStandalone(); }
+function CallInstallGate() {
+  const installable = useInstallable();
+  return html`<div>
+    <div className="wbig" style=${{ fontSize: "1.3rem" }}>Video chat works from the app</div>
+    <p className="muted">To use video chat, open Inner Circle from the icon on your home screen. It is not available in a browser tab. Here is how to put it on your home screen:</p>
+    <${InstallSteps} installable=${installable} />
+  </div>`;
+}
+
 function CallBanner() {
   const { profiles, push, me, bump, toast } = useApp();
   const calls = useOpenCalls();
@@ -990,32 +1006,46 @@ function CallBanner() {
 }
 
 function StartCallSheet({ onClose }) {
-  const { me, profiles, push, toast } = useApp();
+  const { me, profiles, push, toast, presence } = useApp();
   const [title, setTitle] = useState("");
-  const [who, setWho] = useState([]);
+  const [who, setWho] = useState([]);          /* empty = everyone who is in the app */
   const [busy, setBusy] = useState(false);
+  const needInstall = callsNeedInstall();
   const others = approvedOthers(profiles, me);
+  const live = !!(presence && presence.live);
+  const inApp = function (id) { const v = presence && presence.map ? presence.map[id] : ""; return v === "a" || v === "i"; };
+  const here = live ? others.filter(function (p) { return inApp(p.id); }) : others;
   function toggle(id) { setWho(function (w) { return w.indexOf(id) >= 0 ? w.filter(function (x) { return x !== id; }) : w.length >= 3 ? w : w.concat([id]); }); }
+  const nobody = live && here.length === 0;
   async function go() {
+    let invited = [];
+    if (live) {
+      invited = who.length ? who.filter(inApp) : here.map(function (p) { return p.id; });
+      if (!invited.length) { toast(who.length ? "Nobody you picked is in the app right now." : "Nobody else is in the app right now."); return; }
+    } else invited = who;
     setBusy(true);
-    const r = await sb.from("calls").insert({ host_id: me.id, title: title.trim(), invited: who }).select("id").single();
+    const r = await sb.from("calls").insert({ host_id: me.id, title: title.trim(), invited: invited }).select("id").single();
     setBusy(false);
     if (r.error || !r.data) { toast(/relation|does not exist|schema cache/i.test((r.error && r.error.message) || "") ? "Video chat is not set up yet. The organizer needs to run the latest SQL." : ((r.error && r.error.message) || "Could not start the chat.")); return; }
     onClose();
     push({ name: "call", id: r.data.id });
   }
+  if (needInstall) return html`<${Sheet} title="Start a video chat" onClose=${onClose}><${CallInstallGate} /></${Sheet}>`;
   return html`<${Sheet} title="Start a video chat" onClose=${onClose}>
-    <p className="muted" style=${{ marginTop: 0 }}>Up to 4 people can be on at once. Everyone you ring gets a notification. Nothing is recorded.</p>
+    <p className="muted" style=${{ marginTop: 0 }}>Up to 4 people can be on at once. ${live ? "Only family who are in the app can be rung." : "Everyone you ring gets a notification."} Nothing is recorded.</p>
+    ${!live && html`<div className="warnbox" style=${{ marginTop: 0, marginBottom: ".6rem" }}>We cannot see who is in the app right now, so we cannot check. Everyone you pick will be rung.</div>`}
     <label htmlFor="call-title" style=${{ fontWeight: 600 }}>What is it about? (optional)</label>
     <input id="call-title" className="field" style=${{ marginTop: ".3rem" }} maxLength="60" placeholder="Example: Sunday catch-up" value=${title} onChange=${function (e) { setTitle(e.target.value); }} />
     <div style=${{ fontWeight: 600, margin: "1rem 0 .4rem" }}>Who should we ring?</div>
-    <div className="chips"><button type="button" className=${"chip pick" + (who.length === 0 ? " on" : "")} aria-pressed=${who.length === 0} onClick=${function () { setWho([]); }}>Everyone</button></div>
-    <div className="muted" style=${{ fontSize: ".8rem", margin: ".5rem 0 .3rem" }}>Or pick up to 3 people:</div>
+    <div className="chips"><button type="button" className=${"chip pick" + (who.length === 0 ? " on" : "")} aria-pressed=${who.length === 0} disabled=${nobody} onClick=${function () { setWho([]); }}>${live ? "Everyone in the app (" + here.length + ")" : "Everyone"}</button></div>
+    ${nobody && html`<div className="muted" style=${{ fontSize: ".8rem", margin: ".4rem 0" }}>Nobody else is in the app right now. Ask family to open Inner Circle, then try again.</div>`}
+    <div className="muted" style=${{ fontSize: ".8rem", margin: ".5rem 0 .3rem" }}>Or pick up to 3 people${live ? " who are in the app" : ""}:</div>
     <div className="chips">${others.map(function (p) {
       const on = who.indexOf(p.id) >= 0;
-      return html`<button type="button" key=${p.id} className=${"chip love" + (on ? " on" : "")} aria-pressed=${on} onClick=${function () { toggle(p.id); }}>${nm(p)}</button>`;
+      const away = live && !inApp(p.id);
+      return html`<button type="button" key=${p.id} className=${"chip love" + (on ? " on" : "")} aria-pressed=${on} disabled=${away} style=${away ? { opacity: .5 } : undefined} onClick=${function () { toggle(p.id); }}>${nm(p)}${away ? " · not in the app" : ""}</button>`;
     })}</div>
-    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy} onClick=${go}>${busy ? "One moment..." : "Start and ring"}</button></div>
+    <div className="row" style=${{ marginTop: "1rem" }}><button className="btn grey grow" onClick=${onClose}>Cancel</button><button className="btn grow" disabled=${busy || nobody} onClick=${go}>${busy ? "One moment..." : "Start and ring"}</button></div>
   </${Sheet}>`;
 }
 
@@ -1032,6 +1062,11 @@ function CallVideo({ stream, muted, mirror }) {
 }
 
 function CallScreen({ id }) {
+  const { back } = useApp();
+  if (callsNeedInstall()) return html`<div><${TopBar} title="Video chat" back=${back} /><div style=${{ padding: "1rem" }}><${CallInstallGate} /></div></div>`;
+  return html`<${CallScreenLive} id=${id} />`;
+}
+function CallScreenLive({ id }) {
   const { me, profiles, back, toast, bump } = useApp();
   const [call, setCall] = useState(undefined);
   const [phase, setPhase] = useState("lobby");     /* lobby | live */
@@ -1553,7 +1588,7 @@ function Home() {
           <button className="storybtn" aria-label=${mine ? "View your day" : "Add to your day"}
             onClick=${function () { mine ? push({ name: "story", authorId: me.id }) : push({ name: "new", day: true }); }}>
             <div style=${{ position: "relative", width: "3.75rem", margin: "0 auto" }}>
-              <div className=${"ring " + (mine ? (mineSeen ? "seen" : "") : "none")}><${Avatar} id=${me.id} name=${me.display_name} size=${52} /></div>
+              <div className=${"ring " + (mine ? (mineSeen ? "seen" : "") : "none")}><${Avatar} id=${me.id} name=${me.display_name} size=${52} /><${PresenceDot} id=${me.id} side="left" /></div>
               <div className="plus"><${Icon} n="plusSmall" s=${12} sw=${3.5} color="#fff" /></div>
             </div>
             <div className="slabel">Your day</div>
@@ -1565,18 +1600,19 @@ function Home() {
           return html`<div className="story" key=${g.id}>
             ${note && html`<button className="tbub" onClick=${function () { setNoteSheet({ own: false, note: note }); }}>${note.body}</button>`}
             <button className="storybtn" aria-label=${g.plain ? "Open " + nm(p) + "'s page" : g.hasStory ? "View " + nm(p) + "'s day" : "Read " + nm(p) + "'s note"} onClick=${function () { g.plain ? push({ name: "profile", userId: g.id }) : g.hasStory ? push({ name: "story", authorId: g.id }) : setNoteSheet({ own: false, note: note }); }}>
-              <div className=${"ring " + (g.hasStory ? (g.allSeen ? "seen" : "") : "none")}><${Avatar} id=${g.id} name=${p.display_name} size=${52} /></div>
+              <div className=${"ring " + (g.hasStory ? (g.allSeen ? "seen" : "") : "none")}><${Avatar} id=${g.id} name=${p.display_name} size=${52} /><${PresenceDot} id=${g.id} /></div>
               <div className="slabel" style=${{ color: g.plain || (g.hasStory && g.allSeen) ? "var(--muted)" : "inherit" }}>${nm(p)}</div>
             </button>
           </div>`;
         })}
       </div>
+      <${PresenceLegend} />
       ${news && daysSince(news.created_at) < 14 && html`<${NewsCard} item=${news} />`}
       ${prompt && daysSince(prompt.created_at) < 14 && html`<${PromptCard} prompt=${prompt} answers=${answers} />`}
       ${noteSheet && html`<${NoteSheet} target=${noteSheet} onClose=${function () { setNoteSheet(null); }} onDone=${load} />`}
       <${PushAsk} />
       <${CallBanner} />
-      ${!crowded && html`<${ProfileNudge} />`}
+      ${profilePct(me) < PROFILE_GOAL ? html`<${ProfilePoke} />` : !crowded && html`<${ProfileNudge} />`}
       <${HomePoll} P=${P} />
       <${HomeCelebrate} />
       <${BackupReminder} />
@@ -1680,6 +1716,8 @@ function Comments({ postId }) {
   const [busy, setBusy] = useState(false);
   const input = useRef(null);
   const gifIn = useRef(null);
+  const mediaIn = useRef(null);
+  const [att, setAtt] = useState(null);   /* a photo or video waiting to be sent: { kind, file, url, status, pct, result } */
   const [gifSheet, setGifSheet] = useState(false);
   const kb = useKeyboardInset();
   const QUICK = ["❤️", "😍", "🙌", "😂", "👏", "🔥"];
@@ -1704,7 +1742,7 @@ function Comments({ postId }) {
     await load();
     setBusy(false);
   }
-  function send(e) { e.preventDefault(); sendBody(text.trim()); }
+  function send(e) { e.preventDefault(); if (att) sendMedia(); else sendBody(text.trim()); }
   async function pickGif(e) {
     const f = e.target.files && e.target.files[0];
     e.target.value = "";
@@ -1723,6 +1761,72 @@ function Comments({ postId }) {
     await load();
     setBusy(false);
   }
+  function dropAtt() { setAtt(function (a) { if (a && a.url) { try { URL.revokeObjectURL(a.url); } catch (e) {} } return null; }); }
+  function pickMedia(e) {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (isGif(f)) { pickGif({ target: { files: [f] } }); return; }
+    if (/^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name || "")) {
+      dropAtt();
+      setAtt({ kind: "photo", file: f, url: URL.createObjectURL(f), status: "ready" });
+      return;
+    }
+    if (/^video\//.test(f.type) || /\.(mp4|mov|m4v|webm)$/i.test(f.name || "")) {
+      dropAtt();
+      const tag = f.name + f.size;
+      const a = { kind: "video", file: f, tag: tag, status: "working", pct: 0, url: "" };
+      a.promise = prepareVideo(f, function (p) { setAtt(function (x) { return x && x.tag === tag ? Object.assign({}, x, { pct: p }) : x; }); }, false)
+        .then(function (r) {
+          setAtt(function (x) { return x && x.tag === tag ? Object.assign({}, x, { status: "ready", result: r, url: URL.createObjectURL(r.poster) }) : x; });
+          if (r.trimmed) toast("Comment videos are limited to " + SHORT_VIDEO_S + " seconds. Using the first part.");
+          return r;
+        })
+        .catch(function (err) { setAtt(function (x) { return x && x.tag === tag ? null : x; }); toast((err && err.message) || "Could not prepare that video."); return null; });
+      setAtt(a);
+      return;
+    }
+    toast("Please choose a photo or a video.");
+  }
+  async function sendMedia() {
+    const a = att;
+    if (!a || busy) return;
+    setBusy(true);
+    const uploaded = [];
+    const uid = window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    try {
+      const row = { post_id: postId, author_id: me.id, body: text.trim(), parent_id: replyTo ? replyTo.id : null };
+      if (a.kind === "photo") {
+        const blob = await shrink(a.file, 1400);
+        const path = me.id + "/" + uid + ".jpg";
+        const up = await sb.storage.from("photos").upload(path, blob, { contentType: "image/jpeg" });
+        if (up.error) throw up.error;
+        uploaded.push(path);
+        row.media_path = path; row.media_kind = "photo";
+      } else {
+        const res = await a.promise;
+        if (!res) throw new Error("That video could not be prepared.");
+        const ext = /mp4/.test(res.blob.type) ? "mp4" : "webm";
+        const vpath = me.id + "/" + uid + "." + ext;
+        const ppath = me.id + "/" + uid + "-poster.jpg";
+        const u1 = await sb.storage.from("photos").upload(vpath, res.blob, { contentType: res.blob.type || "video/mp4" });
+        if (u1.error) throw u1.error;
+        uploaded.push(vpath);
+        const u2 = await sb.storage.from("photos").upload(ppath, res.poster, { contentType: "image/jpeg" });
+        if (u2.error) throw u2.error;
+        uploaded.push(ppath);
+        row.media_path = vpath; row.media_kind = "video"; row.media_poster = ppath; row.media_seconds = Math.min(35, Math.round(res.seconds));
+      }
+      const r = await sb.from("comments").insert(row);
+      if (r.error) throw r.error;
+      setText(""); setReplyTo(null); dropAtt();
+    } catch (err) {
+      if (uploaded.length) sb.storage.from("photos").remove(uploaded);
+      toast(missingTable(err) ? SQL_HINT : ((err && err.message) || "Could not send that. Please try again."));
+    }
+    await load();
+    setBusy(false);
+  }
   async function toggleHeart(c) {
     const on = c.comment_hearts.some(function (h) { return h.user_id === me.id; });
     const r = on
@@ -1734,7 +1838,7 @@ function Comments({ postId }) {
   async function remove(c) {
     if (!confirm("Delete this comment?")) return;
     const del = await sb.from("comments").delete().eq("id", c.id);
-    if (!del.error && c.gif_path) sb.storage.from("photos").remove([c.gif_path]);
+    if (!del.error) { const gone = [c.gif_path, c.media_path, c.media_poster].filter(Boolean); if (gone.length) sb.storage.from("photos").remove(gone); }
     load();
   }
   function startReply(c) {
@@ -1749,7 +1853,7 @@ function Comments({ postId }) {
   const thumbUrls = useUrls(post ? [post.image_path].filter(Boolean) : []);
   const thumb = post && post.image_path ? thumbUrls(post.image_path) : null;
   const all = list || [];
-  const gifUrls = useUrls(all.map(function (c) { return c.gif_path; }).filter(Boolean));
+  const gifUrls = useUrls([].concat.apply([], all.map(function (c) { return [c.gif_path, c.media_path, c.media_poster]; })).filter(Boolean));
   const tops = all.filter(function (c) { return !c.parent_id; });
   const repliesOf = function (id) { return all.filter(function (c) { return c.parent_id === id; }); };
 
@@ -1760,6 +1864,11 @@ function Comments({ postId }) {
       <${Avatar} id=${c.author_id} name=${authorOf(c.author_id)} size=${reply ? 28 : 36} />
       <div className="grow" style=${{ fontSize: ".9rem" }}>
         <div style=${{ overflowWrap: "anywhere" }}><b style=${{ fontWeight: 600 }}>${authorOf(c.author_id)}</b> ${c.body ? html`<${Linkify} text=${c.body} />` : ""}</div>
+        ${c.media_path && (gifUrls(c.media_path)
+          ? (c.media_kind === "video"
+            ? html`<video className="cmedia" src=${gifUrls(c.media_path)} poster=${(c.media_poster && gifUrls(c.media_poster)) || undefined} controls playsInline preload="metadata" aria-label="Video in a comment"></video>`
+            : html`<a href=${gifUrls(c.media_path)} target="_blank" rel="noopener noreferrer"><img className="cmedia" src=${gifUrls(c.media_path)} alt="Photo in a comment" loading="lazy" /></a>`)
+          : html`<div className="cmedia ph"></div>`)}
         ${c.gif_path && (gifUrls(c.gif_path) ? html`<img className="cgif" src=${gifUrls(c.gif_path)} alt="GIF" loading="lazy" />` : html`<div className="cgif ph"></div>`)}
         <div className="meta">${agoShort(c.created_at)}${n > 0 ? html`<b style=${{ marginLeft: ".8rem", fontWeight: 700 }}>${n === 1 ? "1 heart" : n + " hearts"}</b>` : ""}
           <button onClick=${function () { startReply(c); }}>Reply</button>
@@ -1797,16 +1906,25 @@ function Comments({ postId }) {
       <div className="composer2" style=${{ bottom: kb + "px", paddingBottom: kb > 0 ? ".5rem" : "calc(env(safe-area-inset-bottom, 0px) + .5rem)" }}>
         ${replyTo && html`<div className="replybar">Replying to <b>${authorOf(replyTo.author_id)}</b><button onClick=${function () { setReplyTo(null); setText(""); }} aria-label="Cancel reply">Cancel</button></div>`}
         ${!replyTo && tops.length > 0 && html`<div className="qr small">${QUICK.map(function (em) { return html`<button key=${em} aria-label=${"Send " + em} onClick=${function () { sendBody(em); }}>${em}</button>`; })}</div>`}
+        ${att && html`<div className="attbar">
+          ${att.url ? html`<img src=${att.url} alt="" />` : html`<div className="attph"></div>`}
+          <div className="grow" style=${{ fontSize: ".85rem", minWidth: 0 }}>
+            <div style=${{ fontWeight: 600 }}>${att.kind === "video" ? "Video" : "Photo"}${att.kind === "video" && att.status === "ready" && att.result ? " · " + fmtTime(att.result.seconds) : ""}</div>
+            <div className="muted" style=${{ fontSize: ".78rem" }}>${att.status === "working" ? "Getting your video ready... " + Math.round((att.pct || 0) * 100) + "%" : busy ? "Sending..." : "Ready. Add words if you like, then tap Post."}</div>
+          </div>
+          <button type="button" className="linkbtn" disabled=${busy} onClick=${dropAtt} aria-label="Remove the attachment">Remove</button>
+        </div>`}
         <form className="cform" onSubmit=${send}>
-          <${Avatar} id=${me.id} name=${me.display_name} size=${34} />
           <${EmojiBtn} onPick=${function (em) { setText(function (t) { return (t + em).slice(0, 2000); }); if (input.current) input.current.focus(); }} />
           <input ref=${gifIn} type="file" accept="image/gif" onChange=${pickGif} style=${{ display: "none" }} />
+          <input ref=${mediaIn} type="file" accept="image/*,video/*" onChange=${pickMedia} style=${{ display: "none" }} />
+          <button type="button" className="ibtn" aria-label="Add a photo or video" disabled=${busy} onClick=${function () { mediaIn.current.click(); }}><${Icon} n="camera" s=${24} sw=${1.8} /></button>
           <button type="button" className="ibtn" aria-label="Add a GIF" disabled=${busy} onClick=${function () { if (cfg.GIPHY_KEY) setGifSheet(true); else gifIn.current.click(); }}><${Icon} n="gif" s=${26} sw=${1.8} /></button>
           <label className="sr" htmlFor="cm-in">Add a comment</label>
           <input id="cm-in" ref=${input} type="text" value=${text} maxLength="2000"
             placeholder=${replyTo ? "Write a reply..." : "Add a comment..."}
             onChange=${function (e) { setText(e.target.value); }} />
-          <button className="sendbtn" aria-label="Post" disabled=${busy || !text.trim()}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          <button className="sendbtn" aria-label="Post" disabled=${busy || (!text.trim() && !att)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
         </form>
       </div>
     </div>`;
@@ -2297,6 +2415,46 @@ function prefsProgress(p) {
     + (x.emoji.length ? 1 : 0) + (x.tl ? 1 : 0);
   return { done: done, total: PREFS_GOAL, full: done >= PREFS_GOAL };
 }
+/* Round 28: one number for "how filled in is my profile", used by the poke card, the meter and the organizer view */
+const PROFILE_GOAL = 50;
+function profilePct(p) {
+  const pr = prefsProgress(p);
+  let n = 0;
+  if (p && p.avatar_path) n += 15;
+  if (p && p.birth_month) n += 10;
+  if (p && (p.bio || "").trim()) n += 10;
+  if (p && (p.relation || "").trim()) n += 5;
+  n += Math.round(Math.min(pr.done, PREFS_GOAL) / PREFS_GOAL * 50);
+  if (p && ((p.theme && Object.keys(p.theme).length) || p.cover_path)) n += 10;
+  return Math.min(100, n);
+}
+function ProfileBar({ pct }) {
+  return html`<div className="pbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${pct}><i style=${{ width: pct + "%" }}></i></div>`;
+}
+function profileNextStep(me) {
+  const pr = prefsProgress(me);
+  if (!me.avatar_path) return { t: "Add a profile photo", d: "So the family sees your face, not just a letter.", go: { name: "settings" } };
+  if (!me.birth_month) return { t: "Add your birthday", d: "The family gets a reminder to wish you well.", go: { name: "settings" } };
+  if (pr.done < 10) return { t: "Answer a few get-to-know-you questions", d: pr.done + " answered. They take seconds and power the family games.", go: { name: "prefs" } };
+  if (!(me.bio || "").trim()) return { t: "Say a little about you", d: "A short bio helps everyone know you.", go: { name: "settings" } };
+  return { t: "Answer a few more questions", d: pr.done + " answered so far.", go: { name: "prefs" } };
+}
+function ProfilePoke() {
+  const { me, push } = useApp();
+  const [snooze, setSnooze] = useState(Number(lsGet("ic-poke-snooze", "0")) || 0);
+  const pct = profilePct(me);
+  if (pct >= PROFILE_GOAL || Date.now() < snooze) return null;
+  const nx = profileNextStep(me);
+  function later() { const t = Date.now() + 86400000; lsSet("ic-poke-snooze", String(t)); setSnooze(t); }
+  return html`<div className="pcard slim nudge">
+    <div className="grow"><div className="pk">Your profile is ${pct}% done. Let's get to ${PROFILE_GOAL}%</div>
+      <${ProfileBar} pct=${pct} />
+      <div className="pt">${nx.t}</div><div className="muted" style=${{ fontSize: ".78rem" }}>${nx.d}</div></div>
+    <div className="col" style=${{ display: "flex", flexDirection: "column", gap: ".2rem", alignItems: "stretch" }}>
+      <button className="btn sm" onClick=${function () { push(nx.go); }}>Do it</button>
+      <button className="linkbtn" onClick=${later}>Later</button></div>
+  </div>`;
+}
 function norm(t) { return String(t || "").trim().toLowerCase(); }
 function isColor(v) { try { return !!(window.CSS && CSS.supports && CSS.supports("color", String(v).trim().toLowerCase())); } catch (e) { return false; } }
 
@@ -2500,7 +2658,7 @@ function KnowMe({ p, mine }) {
 /* =====================  guess who (a family game built from everyone's answers)  ===================== */
 function shuffle(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = b[i]; b[i] = b[j]; b[j] = t; } return b; }
 function GuessWho() {
-  const { me, profiles, back } = useApp();
+  const { me, profiles, back, push } = useApp();
   const [rows, setRows] = useState(null);
   const [round, setRound] = useState(0);
   const [qs, setQs] = useState([]);
@@ -2540,7 +2698,8 @@ function GuessWho() {
     ${rows && (withFacts < 1 || people.length < 2) && html`<div className="center" style=${{ padding: "3rem 1.5rem" }}>
       <div style=${{ fontSize: "3rem" }}>🕵️</div>
       <div className="serif" style=${{ fontSize: "1.3rem", color: "var(--green)", margin: ".4rem 0" }}>Not enough answers yet</div>
-      <div className="muted">Guess who needs at least two other family members to have filled in Get to know me. Ask them to open More, then Settings, then Get to know me.</div></div>`}
+      <div className="muted">Guess who needs at least two other family members to have filled in Get to know me. Ask them to open More, then Settings, then Get to know me.</div>
+      <button className="btn sm" style=${{ marginTop: ".6rem" }} onClick=${function () { push({ name: "prefs" }); }}>Fill in mine</button></div>`}
     ${q && !done && html`<div style=${{ padding: "1rem" }}>
       <div className="muted" style=${{ fontWeight: 600 }}>Question ${round + 1} of ${withFacts} · Score ${score}</div>
       <div className="gwq"><span aria-hidden="true" style=${{ fontSize: "1.6rem" }}>${q.e}</span><div>${q.q} <b>${q.a}</b></div></div>
@@ -2794,7 +2953,7 @@ function Profile({ userId, root }) {
         : html`<${TopBar} title=${nm(p)} back=${back} />`}
       ${banner && html`<div className="pbanner" style=${coverU ? { backgroundImage: "url(" + coverU + ")" } : th ? { backgroundImage: "linear-gradient(135deg, " + th.c1 + ", " + th.c2 + ")" } : { backgroundImage: "var(--grad)" }}></div>`}
       <div className="row" style=${{ padding: ".6rem 1.1rem", gap: "1.4rem", marginTop: banner ? "-2.9rem" : 0, alignItems: banner ? "flex-end" : "center" }}>
-        <div className="ring" style=${{ width: "5.5rem", height: "5.5rem", flex: "none", margin: 0, borderColor: th ? th.c1 : "var(--amber)", background: "var(--bg)" }}><${Avatar} id=${userId} name=${p.display_name} size=${72} /></div>
+        <div className="ring" style=${{ width: "5.5rem", height: "5.5rem", flex: "none", margin: 0, borderColor: th ? th.c1 : "var(--amber)", background: "var(--bg)" }}><${Avatar} id=${userId} name=${p.display_name} size=${72} /><${PresenceDot} id=${userId} /></div>
         <div className="row" style=${{ flex: 1, justifyContent: "space-around", paddingBottom: banner ? ".1rem" : 0 }}>
           <div className="stat"><b>${posts ? n : "-"}</b><span>${n === 1 ? "moment" : "moments"}</span></div>
           <div className="stat"><b>${since}</b><span>here since</span></div>
@@ -3769,6 +3928,7 @@ function MoreScreen() {
       <div className="grow" style=${{ textAlign: "left", minWidth: 0 }}><div style=${{ fontWeight: 700, fontSize: "1.1rem" }}>${nm(me)}</div><div className="muted" style=${{ fontSize: ".85rem" }}>${!me.avatar_path ? "Add a profile photo" : !me.birth_month ? "Add your birthday" : "See my profile and posts"}</div></div>
       <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
     </button>
+    ${profilePct(me) < PROFILE_GOAL && html`<div className="tiles"><${Tile} icon="✨" label="Finish your profile" sub=${profilePct(me) + "% done. Aim for " + PROFILE_GOAL + "%"} dot=${true} onClick=${function () { push(profileNextStep(me).go); }} /></div>`}
     <h2 className="morehd">Family</h2>
     <div className="tiles">
       <${Tile} icon="👪" label="Family members" sub=${memberCount + (memberCount === 1 ? " person" : " people")} onClick=${function () { push({ name: "people" }); }} />
@@ -3835,7 +3995,7 @@ function People() {
     const l = last[m.id];
     return html`<div className="listrow" key=${m.id} style=${{ cursor: "default" }}>
       <button className="rowmain" onClick=${function () { push({ name: "profile", userId: m.id }); }}>
-        <${Avatar} id=${m.id} name=${m.display_name} size=${52} />
+        <span className="pdhost"><${Avatar} id=${m.id} name=${m.display_name} size=${52} /><${PresenceDot} id=${m.id} /></span>
         <div style=${{ minWidth: 0 }}>
           <div style=${{ fontWeight: 600 }}>${nm(m)}${m.id === me.id ? " (you)" : ""}</div>
           ${m.relation && html`<div className="muted" style=${{ fontSize: ".8rem" }}>${m.relation}</div>`}
@@ -3867,7 +4027,8 @@ const NOTIF_KINDS = [
   ["calls", "Video chat calls", "When someone rings you"],
   ["chat", "Chat messages", "Family chat and group chats"],
   ["polls", "New polls", "When someone asks the family"],
-  ["capsules", "Time capsules opening", "When a letter for you is ready"]
+  ["capsules", "Time capsules opening", "When a letter for you is ready"],
+  ["profile", "Profile reminders", "Until your profile is half done"]
 ];
 function hourLabel(h) { return (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? " AM" : " PM"); }
 function localTimeIn(tz) {
@@ -3878,6 +4039,102 @@ const SQL_HINT = "The database needs its latest update first (run schema.sql in 
 function missingTable(e) { return /relation|does not exist|schema cache|column|function/i.test((e && e.message) || ""); }
 
 /* Per-type switches and quiet hours, saved to your profile. The notification service reads them before it sends. */
+/* =====================  who is in the app right now  =====================
+   One shared "presence" channel. Everyone in the app announces "active" or "idle"; the server drops them when they leave.
+   green = using the app now, yellow = open but idle (or in the background), red = not in the app.
+   If the live connection is not available the dots are simply hidden, never shown wrongly. */
+const PRESENCE_IDLE_MS = 90000;
+function usePresence(me) {
+  const [st, setSt] = useState({ live: false, map: {} });
+  const hide = !!(me && me.notif && typeof me.notif === "object" && me.notif.presence === false);
+  useEffect(function () {
+    if (!me || !me.id) return;
+    let ch = null, timer = null, cur = "", last = Date.now(), gone = false;
+    const nowState = function () { return document.hidden ? "i" : (Date.now() - last < PRESENCE_IDLE_MS ? "a" : "i"); };
+    const announce = function () {
+      if (hide || !ch || gone) return;
+      const s = nowState();
+      if (s === cur) return;
+      cur = s;
+      try { ch.track({ s: s, t: Date.now() }); } catch (e) {}
+    };
+    const touch = function () { last = Date.now(); announce(); };
+    const read = function () {
+      if (gone || !ch) return;
+      try {
+        const ps = ch.presenceState();
+        const m = {};
+        Object.keys(ps).forEach(function (k) {
+          let best = "";
+          (ps[k] || []).forEach(function (x) { if (x && x.s === "a") best = "a"; else if (!best) best = "i"; });
+          if (best) m[k] = best;
+        });
+        setSt(function (o) { return { live: o.live, map: m }; });
+      } catch (e) {}
+    };
+    const onVis = function () { if (document.hidden) announce(); else touch(); };
+    const onLeave = function () { try { if (ch) ch.untrack(); } catch (e) {} cur = ""; };   /* closing the app: say so right away */
+    const onBack = function () { touch(); };
+    try {
+      ch = sb.channel("presence:family", { config: { private: true, presence: { key: me.id } } });
+      ch.on("presence", { event: "sync" }, read);
+      ch.subscribe(function (s) {
+        if (gone) return;
+        if (s === "SUBSCRIBED") { setSt(function (o) { return { live: true, map: o.map }; }); cur = ""; announce(); read(); }
+        else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") setSt({ live: false, map: {} });
+      });
+    } catch (e) { setSt({ live: false, map: {} }); }
+    const evs = ["pointerdown", "keydown", "touchstart", "scroll"];
+    evs.forEach(function (e) { window.addEventListener(e, touch, { passive: true, capture: true }); });
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", onLeave);
+    window.addEventListener("pageshow", onBack);
+    timer = setInterval(announce, 10000);
+    return function () {
+      gone = true;
+      evs.forEach(function (e) { window.removeEventListener(e, touch, { capture: true }); });
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", onLeave);
+      window.removeEventListener("pageshow", onBack);
+      clearInterval(timer);
+      try { if (ch) { ch.untrack(); sb.removeChannel(ch); } } catch (e) {}
+    };
+  }, [me && me.id, hide]);
+  return st;
+}
+function PresenceLegend() {
+  const c = useContext(Ctx);
+  if (!c || !c.presence || !c.presence.live) return null;
+  return html`<div className="pdlegend" aria-hidden="true"><span><i className="pd on"></i>In the app</span><span><i className="pd idle"></i>Away</span><span><i className="pd off"></i>Not in the app</span></div>`;
+}
+/* the little coloured dot on a person's picture */
+function PresenceDot({ id, side }) {
+  const c = useContext(Ctx);
+  const p = c && c.presence;
+  if (!p || !p.live || !id) return null;
+  const mine = c.me && c.me.id === id;
+  if (mine && c.me.notif && typeof c.me.notif === "object" && c.me.notif.presence === false) return null;
+  const s = p.map[id] || (mine ? "a" : "");
+  const k = s === "a" ? "on" : s === "i" ? "idle" : "off";
+  const label = k === "on" ? "In the app now" : k === "idle" ? "In the app, away" : "Not in the app";
+  return html`<span className=${"pd " + k + (side === "left" ? " left" : "")} role="img" aria-label=${label} title=${label}></span>`;
+}
+function PresenceToggle() {
+  const { me, toast, reloadMe } = useApp();
+  const n = me.notif && typeof me.notif === "object" ? me.notif : {};
+  const on = n.presence !== false;
+  async function flip() {
+    const nn = Object.assign({}, n);
+    if (on) nn.presence = false; else delete nn.presence;
+    const r = await sb.from("profiles").update({ notif: nn }).eq("id", me.id);
+    if (r.error) { toast(missingTable(r.error) ? SQL_HINT : r.error.message); return; }
+    await reloadMe();
+    toast(on ? "Family will see you as not in the app." : "Family can see when you are in the app.");
+  }
+  return html`<div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}><div className="grow"><div style=${{ fontWeight: 600 }}>Show when I am in the app</div><div className="muted" style=${{ fontSize: ".8rem" }}>A green, yellow or red dot on your picture. Turn off to always look not in the app.</div></div>
+    <button role="switch" aria-checked=${on} aria-label="Show when I am in the app" className=${"switch " + (on ? "on" : "")} onClick=${flip}><i></i></button></div>`;
+}
+
 function TimeShareToggle() {
   const { me, toast, reloadMe, reloadProfiles } = useApp();
   const n = me.notif && typeof me.notif === "object" ? me.notif : {};
@@ -3894,6 +4151,52 @@ function TimeShareToggle() {
   return html`<div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}><div className="grow"><div style=${{ fontWeight: 600 }}>Show my local time</div><div className="muted" style=${{ fontSize: ".8rem" }}>Family sees what time it is where you are, on your profile. Quiet hours still work if you turn this off.</div></div>
     <button role="switch" aria-checked=${!priv} aria-label="Show my local time" className=${"switch " + (!priv ? "on" : "")} onClick=${flip}><i></i></button></div>`;
 }
+/* "Send me a test": registers this phone again, asks the sender to push to it, and explains in plain words what happened */
+function explainPush(res) {
+  if (!res) return { ok: false, msg: "The sender did not answer in time. In Supabase, check Database, Extensions: pg_net must be switched on. Then run push.sql again." };
+  if (res.error || res.timed_out) return { ok: false, msg: "The database could not reach the send-push function (" + String(res.error || "timed out").slice(0, 100) + "). Check that send-push is deployed in Supabase, Edge Functions." };
+  if (res.status === 401) return { ok: false, msg: "The send-push function refused the request (401). In Supabase, Edge Functions, send-push, Details: switch Verify JWT off. Also make sure the secret in push.sql matches the one in send-push.ts." };
+  if (res.status === 404) return { ok: false, msg: "The send-push function is not deployed. In Supabase, Edge Functions, create send-push and paste send-push.ts." };
+  let j = null;
+  try { j = JSON.parse(res.content || ""); } catch (e) {}
+  if (res.status >= 500 || (j && j.error)) return { ok: false, msg: "The send-push function failed: " + String((j && j.error) || res.content || res.status).slice(0, 140) };
+  if (!j || j.subs === undefined) return { ok: false, msg: "The send-push function is an old version. Open Edge Functions, send-push, paste the newest send-push.ts, and Deploy." };
+  if (j.subs === 0) return { ok: false, msg: "The sender found no registered phone for you. Turn notifications off and on again above, then test again." };
+  if (j.sent > 0) return { ok: true, msg: "Sent to " + j.sent + " phone" + (j.sent === 1 ? "" : "s") + ". It should arrive in a few seconds. If nothing shows, check this phone's notification settings and Do Not Disturb." };
+  const f = (j.failed || [])[0];
+  if (f && (f.status === 401 || f.status === 403)) return { ok: false, msg: "The phone's push service refused the keys (" + f.status + "). The public key in app.js and the keys in send-push.ts must be the same pair. Turn notifications off and on, then test again." };
+  if (j.removed) return { ok: false, msg: "This phone's registration had expired and was removed. Turn notifications off and on above, then test again." };
+  return { ok: false, msg: "The push service did not accept the message" + (f ? " (" + f.status + " " + f.msg + ")" : "") + "." };
+}
+function PushTest() {
+  const [st, setSt] = useState({ busy: false, msg: "", ok: null });
+  async function run() {
+    const say = function (ok, msg, busy) { setSt({ busy: !!busy, ok: ok, msg: msg }); };
+    say(null, "Checking this phone...", true);
+    if (!pushCanWork()) { say(false, pushNeedsInstall() ? "On iPhone, notifications only work from the home-screen icon. Add Inner Circle to your home screen, open it from there, and turn notifications on." : "This browser cannot receive notifications. Try the installed app."); return; }
+    if (Notification.permission !== "granted") { say(false, Notification.permission === "denied" ? "Notifications are blocked for Inner Circle. Allow them in your phone's settings, then try again." : "Notifications are not turned on yet. Turn them on above first."); return; }
+    try { await pushEnable(); } catch (e) { say(false, pushWhy(e)); return; }
+    say(null, "Asking the sender to push to this phone...", true);
+    const a = await sb.rpc("push_test");
+    if (a.error) { say(false, missingTable(a.error) ? "The test step is not in the database yet. Run push.sql in the Supabase SQL Editor, then try again." : a.error.message); return; }
+    let res = null;
+    for (let i = 0; i < 10 && !res; i++) {
+      await new Promise(function (r) { setTimeout(r, 1200); });
+      const b = await sb.rpc("push_test_result", { p_id: a.data });
+      if (b.error) { say(false, b.error.message); return; }
+      res = b.data;
+    }
+    const x = explainPush(res);
+    say(x.ok, x.msg);
+  }
+  return html`<div className="opt" style=${{ display: "block" }}>
+    <div style=${{ fontWeight: 600 }}>Not getting notifications?</div>
+    <div className="muted" style=${{ fontSize: ".78rem", margin: ".15rem 0 .5rem" }}>Send yourself a test. If it fails, this tells you exactly why.</div>
+    <button className="btn grey" disabled=${st.busy} onClick=${run}>${st.busy ? "Testing..." : "Send me a test"}</button>
+    ${st.msg && html`<div className=${st.ok === false ? "warnbox" : "muted"} role="status" style=${{ marginTop: ".6rem", fontSize: ".85rem" }}>${st.ok === true ? "✅ " : ""}${st.msg}</div>`}
+  </div>`;
+}
+
 function NotifPrefs() {
   const { me, toast, reloadMe } = useApp();
   const [n, setN] = useState(me.notif && typeof me.notif === "object" ? me.notif : {});
@@ -4217,7 +4520,7 @@ function ChatList({ root }) {
     <div style=${{ padding: ".5rem 0" }}>
       ${callSupported() && html`<button className="listrow" style=${{ borderBottom: "1px solid var(--soft)" }} onClick=${function () { setStartCall(true); }}>
         <div className="chatav" aria-hidden="true">📹</div>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>Video chat</div><div className="muted" style=${{ fontSize: ".85rem" }}>Talk face to face with family</div></div>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Video chat</div><div className="muted" style=${{ fontSize: ".85rem" }}>${callsNeedInstall() ? "Open the home-screen app to use video" : "Talk face to face with family"}</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>`}
       ${startCall && html`<${StartCallSheet} onClose=${function () { setStartCall(false); }} />`}
@@ -4406,6 +4709,13 @@ function Organizer() {
     if (res === "copied") toast("Invite copied. Paste it into a text or email.");
   }
 
+  async function pokeProfile(p) {
+    const first = (p.display_name || "").split(" ")[0] || "there";
+    const r = await sb.from("hellos").insert({ from_id: me.id, to_id: p.id, message: "Hi " + first + ", could you finish your profile when you get a minute? A photo and a few get-to-know-you answers unlock the family games." });
+    if (r.error) { toast(r.error.message); return; }
+    lsSet("ic-poked-" + p.id, String(Date.now() + 3 * 86400000));
+    toast("Poked " + first + ". They get it as a hello."); bump();
+  }
   if (err && !list) return html`<div><${TopBar} title="Manage your circle" back=${back} /><${Failed} what="the organizer tools" onRetry=${load} /></div>`;
   const pending = (list || []).filter(function (p) { return p.status === "pending"; });
   const approved = (list || []).filter(function (p) { return p.status === "approved" && p.id !== me.id; });
@@ -4463,7 +4773,7 @@ function Organizer() {
         <h2 className="serif sec">Members</h2>
         ${!approved.length && html`<div className="muted" style=${{ fontSize: ".85rem" }}>Just you so far.</div>`}
         ${approved.map(function (p) {
-          return html`<div className="row" key=${p.id} style=${{ margin: ".4rem 0" }}><div className="grow">${nm(p)}${p.role === "admin" ? html` <span className="orgtag">Organizer</span>` : ""}${p.relation ? html`<span className="muted"> · ${p.relation}</span>` : ""}</div>
+          return html`<div className="row" key=${p.id} style=${{ margin: ".4rem 0" }}><div className="grow">${nm(p)}${p.role === "admin" ? html` <span className="orgtag">Organizer</span>` : ""}${p.relation ? html`<span className="muted"> · ${p.relation}</span>` : ""}<div className="muted" style=${{ fontSize: ".78rem" }}>Profile ${profilePct(p)}%${profilePct(p) < PROFILE_GOAL && Date.now() > Number(lsGet("ic-poked-" + p.id, "0")) ? html` · <button className="linkbtn" onClick=${function () { pokeProfile(p); }}>Poke to finish it</button>` : ""}</div></div>
             <button className="linkbtn" onClick=${function () { setRole(p); }}>${p.role === "admin" ? "Make member" : "Make organizer"}</button>
             ${p.role !== "admin" && html`<button className="linkbtn" style=${{ color: "var(--red)" }} onClick=${function () { if (confirm("Remove " + nm(p) + " from Inner Circle?")) setStatus(p.id, "removed"); }}>Remove</button>`}</div>`;
         })}
@@ -4512,13 +4822,14 @@ function HelpScreen() {
         <p>Use <b>Your day</b> at the top of Home for quick moments that last a day.</p>
       </div>`)}
       ${sec("Video chat", false, html`<div>
-        <p>Open <b>Chat</b>, then <b>Video chat</b>. Up to 4 people can be in one room. Allow the camera and microphone when your phone asks, use Wi-Fi if you can, and keep your screen on, because a locked phone drops out of the call.</p>
+        <p>Open <b>Chat</b>, then <b>Video chat</b>. On a phone or tablet video chat works only from the Inner Circle icon on your home screen, not from a browser tab, and you can only ring family who are in the app (green or yellow dot). Up to 4 people can be in one room. Allow the camera and microphone when your phone asks, use Wi-Fi if you can, and keep your screen on, because a locked phone drops out of the call.</p>
         <p>If you can join but cannot see or hear someone, ask them to leave and rejoin, or try on Wi-Fi.</p>
       </div>`)}
       ${sec("Chat, polls and time capsules", false, html`<div>
         <p><b>Family chat:</b> tap <b>Chat</b> at the bottom. "Everyone" is the whole Inner Circle; each of your groups has its own room. Messages are text and emoji. Tap a message to delete your own. Organizers can delete any message.</p>
         <p><b>Polls:</b> More, then Polls. Tap a choice to vote, tap it again to take your vote back. Everyone can see who voted for what. The person who asked (or an organizer) can tap Edit to fix the question, add or remove choices, or change the closing time.</p>
         <p><b>Time capsules:</b> More, then Time capsules. A letter stays hidden from everyone but you until the day you choose, then the people it is for get a notification. You can delete a letter before it opens. As with everything stored here, whoever runs the app has technical access.</p>
+        <p>The small dot on a person's picture shows if they are in the app: <b>green</b> means using it right now, <b>yellow</b> means it is open but they are away or it is in the background, and <b>red</b> means not in the app. It only works while the live connection is up, and it is shown only to signed-in family. You can turn your own dot off in Settings (Show when I am in the app); then you will always look red.</p>
         <p>Your time zone is saved automatically so family can see your local time on your profile. You can turn that off in Settings (Show my local time); the app still keeps it privately so quiet hours work.</p>
       </div>`)}
       ${sec("Leaving, or removing something", false, html`<div>
@@ -4744,6 +5055,7 @@ function Settings() {
         <div className="flabel">Birthday (the year is optional. If you add it, family sees how old you are turning)</div>
         <${MonthDay} idp="s-bd" m=${bm} d=${bd} onM=${setBm} onD=${setBd} y=${by} onY=${setBy} />
       </div>
+      <div style=${{ padding: ".6rem 1rem" }}><div style=${{ fontWeight: 600 }}>Profile ${profilePct(me)}% done</div><${ProfileBar} pct=${profilePct(me)} /><div className="muted" style=${{ fontSize: ".78rem" }}>${profilePct(me) >= PROFILE_GOAL ? "Nicely done. More answers make the games better." : "Reach " + PROFILE_GOAL + "% to unlock the family games."}</div></div>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "prefs" }); }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>Favorites, finish-the-sentence, two truths and a lie, emoji</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
@@ -4777,6 +5089,8 @@ function Settings() {
       ${pushOn && html`<${NotifPrefs} />`}
       <${TimeShareToggle} />
       ${pushErr && html`<div role="alert" style=${{ margin: "0 1rem .8rem", padding: ".7rem .9rem", borderRadius: ".7rem", background: "#ffe1d8", color: "#7a2a10", fontSize: ".85rem" }}>${pushErr}</div>`}`}
+      <${PushTest} />
+      <${PresenceToggle} />
       <div className="opt" style=${{ borderTop: "1px solid var(--soft)" }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Larger text</div><div className="muted" style=${{ fontSize: ".8rem" }}>Bigger words and buttons</div></div>
         <button role="switch" aria-checked=${easy} aria-label="Larger text" className=${"switch " + (easy ? "on" : "")} onClick=${function () { setEasy(!easy); }}><i></i></button>
@@ -5362,6 +5676,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       const c = qs.get("chat"), cap = qs.get("capsule");
       if (c && (c === "all" || /^[0-9a-f-]{36}$/i.test(c))) { history.replaceState({}, "", location.pathname); push({ name: "chat" }); push({ name: "chatroom", gid: c }); }
       else if (cap) { history.replaceState({}, "", location.pathname); push({ name: "capsules" }); }
+      else if (qs.get("profile")) { history.replaceState({}, "", location.pathname); push(profileNextStep(me).go); }
     } catch (e) {}
   }, []);
 
@@ -5411,7 +5726,9 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
   const memberCount = members.filter(function (x) { return x.status === "approved"; }).length;
   const pendingCount = me.role === "admin" ? members.filter(function (x) { return x.status === "pending"; }).length : 0;
 
+  const presence = usePresence(me);
   const ctx = {
+    presence: presence,
     me: me, profiles: profiles, toast: toast, push: push, back: back, tab: tab, tick: tick, bump: bump,
     reloadMe: reloadMe, reloadProfiles: loadProfiles, easy: easy, setEasy: setEasy, groupNames: groupNames,
     clearUnread: function () { setUnread(false); }, unread: unread, memberCount: memberCount, pendingCount: pendingCount,
@@ -5491,7 +5808,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
     ["chat", "Chat", html`<${ChatTabIcon} active=${root.name === "chat"} />`],
     ["new", "Share", html`<${Icon} n="plus" s=${26} />`],
     ["events", "Events", html`<${Icon} n="calendar" s=${26} fill=${root.name === "events" ? "currentColor" : "none"} />`],
-    ["more", "More", html`<span style=${{ position: "relative", display: "flex" }}><${Icon} n="more" s=${26} fill=${root.name === "more" ? "currentColor" : "none"} sw=${root.name === "more" ? 2.6 : 1.8} />${pendingCount > 0 && html`<span className="badge" style=${{ top: "-.1rem", right: "-.25rem" }}></span>`}</span>`]
+    ["more", "More", html`<span style=${{ position: "relative", display: "flex" }}><${Icon} n="more" s=${26} fill=${root.name === "more" ? "currentColor" : "none"} sw=${root.name === "more" ? 2.6 : 1.8} />${(pendingCount > 0 || profilePct(me) < PROFILE_GOAL) && html`<span className="badge" style=${{ top: "-.1rem", right: "-.25rem" }}></span>`}</span>`]
   ];
 
   return html`
