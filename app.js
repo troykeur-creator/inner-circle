@@ -680,6 +680,7 @@ function AuthScreen({ toast, easy, setEasy }) {
   const [f, setF] = useState({ name: "", phone: "", code: urlCode, token: "" });
   const [busy, setBusy] = useState(false);
   const [wait, setWait] = useState(0);
+  const [err, setErr] = useState("");
   const set = function (k) { return function (e) { const v = e.target.value; setF(function (o) { return Object.assign({}, o, { [k]: v }); }); }; };
 
   useEffect(function () {
@@ -700,7 +701,7 @@ function AuthScreen({ toast, easy, setEasy }) {
     } else {
       const r = await sb.auth.signInWithOtp({ phone: phone, options: { shouldCreateUser: false } });
       if (r.error) {
-        if (/signup|not allowed|not found/i.test(r.error.message || "")) throw new Error("We do not see that number yet. Tap Join with an invite below.");
+        if (/signup|not allowed|not found/i.test(r.error.message || "")) throw new Error("We do not see that number yet. If you are new, tap Join the family below.");
         throw new Error(friendlyAuthError(r.error));
       }
     }
@@ -709,26 +710,36 @@ function AuthScreen({ toast, easy, setEasy }) {
     toast("We texted you a code.");
   }
 
-  async function submit(e) {
-    e.preventDefault();
+  async function submit(e, tokenNow) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (busy) return;
     setBusy(true);
+    setErr("");
     try {
       {
         if (step === "details") await sendCode();
         else {
-          const r = await sb.auth.verifyOtp({ phone: toE164(f.phone), token: f.token.trim(), type: "sms" });
+          const r = await sb.auth.verifyOtp({ phone: toE164(f.phone), token: String(tokenNow || f.token).trim(), type: "sms" });
           if (r.error) throw new Error(friendlyAuthError(r.error, "That code did not work. Check the text and try again, or ask for a new one."));
         }
       }
-    } catch (err) {
-      toast(err.message || "Something went wrong.");
+    } catch (ex) {
+      setErr(ex.message || "Something went wrong.");
+      toast(ex.message || "Something went wrong.");
     }
     setBusy(false);
+  }
+  /* a six-digit code is sent on its own, so there is nothing more to tap */
+  function onToken(e) {
+    const v = e.target.value.replace(/\D/g, "");
+    setF(function (o) { return Object.assign({}, o, { token: v }); });
+    if (/^\d{6}$/.test(v)) submit(null, v);
   }
   async function resend() {
     if (wait > 0) return;
     setBusy(true);
-    try { await sendCode(); } catch (err) { toast(err.message || "Could not send a new code."); }
+    setErr("");
+    try { await sendCode(); } catch (ex) { setErr(ex.message || "Could not send a new code."); toast(ex.message || "Could not send a new code."); }
     setBusy(false);
   }
 
@@ -744,7 +755,7 @@ function AuthScreen({ toast, easy, setEasy }) {
       </div>
       ${!chosen && html`<div className="stack" style=${{ marginTop: "2rem" }}>
         <button className="btn block" style=${{ height: "3.6rem", fontSize: "1.05rem" }} onClick=${function () { go("in"); }}>I already have an account</button>
-        <button className="btn grey block" style=${{ height: "3.6rem", fontSize: "1.05rem" }} onClick=${function () { go("up"); }}>I was invited, I'm new</button>
+        <button className="btn grey block" style=${{ height: "3.6rem", fontSize: "1.05rem" }} onClick=${function () { go("up"); }}>I'm new, join the family</button>
         <div className="muted center" style=${{ fontSize: ".85rem" }}>Not sure? If you have never opened Inner Circle on this phone, choose the second one.</div>
       </div>`}
       ${chosen && html`<form className="stack" onSubmit=${submit} style=${{ marginTop: "2rem" }}>
@@ -757,22 +768,24 @@ function AuthScreen({ toast, easy, setEasy }) {
           <div className="muted" style=${{ fontSize: ".8rem" }}>We will text you a code. Outside the US, start with + and your country code.</div>
           ${mode === "up" && html`
             <label className="sr" htmlFor="a-code">Invite code</label>
-            <input id="a-code" className="field" type="text" placeholder="Invite code" value=${f.code} onChange=${set("code")} autoCapitalize="characters" autoComplete="off" />
-            <div className="muted" style=${{ fontSize: ".8rem" }}>${urlCode ? "Your invite code was filled in from the link." : "No code yet? Leave it blank and the family organizer can welcome you in."}</div>`}`}
+            <input id="a-code" className="field" type="text" placeholder="Invite or family code (optional)" value=${f.code} onChange=${set("code")} autoCapitalize="characters" autoComplete="off" />
+            <div className="muted" style=${{ fontSize: ".8rem" }}>${urlCode ? "Your invite code was filled in from the link." : "Have a code from the family? Type it here and you are in right away. No code? Leave it blank and the organizer will welcome you in."}</div>`}`}
         ${phoneMode && step === "code" && html`
           <div className="center" style=${{ fontSize: ".95rem" }}>We texted a code to <b>${f.phone}</b>.</div>
           <label className="sr" htmlFor="a-token">Code from the text</label>
           <input id="a-token" className="field center" style=${{ fontSize: "1.6rem", letterSpacing: ".35em" }} type="text" inputMode="numeric" placeholder="123456" maxLength="8"
-            value=${f.token} onChange=${set("token")} autoComplete="one-time-code" autoFocus />
+            value=${f.token} onChange=${onToken} autoComplete="one-time-code" autoFocus />
+          <div className="muted center" style=${{ fontSize: ".8rem" }}>It can take up to a minute. Type the 6 digits and you are in.</div>
           <div className="center">
             <button type="button" className="linkbtn" style=${{ fontWeight: 500 }} disabled=${wait > 0 || busy} onClick=${resend}>${wait > 0 ? "Send a new code in " + wait + "s" : "Send a new code"}</button>
             <button type="button" className="linkbtn" style=${{ fontWeight: 500 }} onClick=${function () { setStep("details"); }}>Wrong number?</button>
           </div>`}
+        ${err && html`<div className="warnbox" role="alert">${err}</div>`}
         <button className="btn block" style=${{ height: "3.1rem" }} disabled=${busy}>${busy ? "One moment..." : phoneMode && step === "code" ? "Sign in" : title}</button>
       </form>`}
       <div style=${{ flex: 1 }}></div>
       <div className="center" style=${{ borderTop: "1px solid var(--line)", paddingTop: "1rem" }}>
-        ${chosen && mode === "in" && html`<span>New here? <button className="linkbtn" onClick=${function () { go("up"); }}>Join with an invite</button></span>`}
+        ${chosen && mode === "in" && html`<span>New here? <button className="linkbtn" onClick=${function () { go("up"); }}>Join the family</button></span>`}
         ${chosen && mode === "up" && html`<span>Already a member? <button className="linkbtn" onClick=${function () { go("in"); }}>Sign in</button></span>`}
         <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".3rem" }}>Private. No ads. No algorithm. No strangers.</div>
       </div>
@@ -786,7 +799,7 @@ function Waiting({ me, reloadMe }) {
     <div className="authwrap center" style=${{ justifyContent: "center", alignItems: "center" }}>
       <${Logo} s=${56} />
       <h1 className="serif" style=${{ color: "#0879a0", margin: ".6rem 0" }}>${removed ? "Access ended" : "Almost in" + (me.display_name ? ", " + me.display_name : "")}</h1>
-      <p className="muted">${removed ? "The family organizer has ended your access to Inner Circle." : "The family organizer has been asked to welcome you. This screen updates when they do, or tap the button to check."}</p>
+      <p className="muted">${removed ? "The family organizer has ended your access to Inner Circle." : "The family organizer has been asked to welcome you. This screen updates by itself once they do, so you can leave it open or come back later. Waiting a while? Text the person who invited you. If you had an invite link or code that did not work, it may have been used or expired, so ask for a new one."}</p>
       ${!removed && html`<div><button className="btn" onClick=${reloadMe}>Check again</button></div>`}
       <button className="linkbtn" onClick=${signOutClean}>Sign out</button>
     </div>`;
