@@ -561,6 +561,17 @@
   .wallt { flex: 1; text-align: center; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .wbtn2 { background: #fff3; border: 1px solid #fff6; color: #fff; border-radius: .6rem; min-height: 2.75rem; padding: 0 .9rem; cursor: pointer; font-weight: 600; }
 .pbar{height:8px;border-radius:99px;background:var(--soft,#e6efe9);overflow:hidden;margin:.35rem 0}.pbar>i{display:block;height:100%;background:#1fb561;border-radius:99px;transition:width .3s}
+  /* Round 29: the family row scrolls and snaps like Coming up, with the next person peeking in */
+  .stories { overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none; scroll-padding-left: .9rem; }
+  .stories::-webkit-scrollbar { display: none; }
+  .story { width: clamp(3.9rem, calc((100vw - 1.8rem - 2rem) / 4.5), 5rem); scroll-snap-align: start; }
+  /* Round 30: the family question stays quiet */
+  .pcard.quiet { background: #f1f6f8; }
+  .pcard.quiet .pk { font-size: .66rem; color: var(--muted, #6b6b6b); }
+  .pcard.quiet .pt { font-size: .9rem; }
+  .jumpbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-top: .4rem; }
+  .jumpbar::-webkit-scrollbar { display: none; }
+  .jumpbar .chip { flex: none; }
 </style>
 </head>
 <body>

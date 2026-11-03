@@ -164,6 +164,7 @@ async function signOutClean() {   /* stop this phone buzzing for the account bei
 }
 
 let deferredInstall = null;
+window.addEventListener("appinstalled", function () { try { localStorage.setItem("ic-inst-snooze", String(Date.now() + 365 * 86400000)); } catch (e) {} });
 window.addEventListener("beforeinstallprompt", function (e) {
   e.preventDefault();
   deferredInstall = e;
@@ -1440,9 +1441,9 @@ function ProfileNudge() {
   const [snooze, setSnooze] = useState(Number(lsGet("ic-nudge-snooze", "0")) || 0);
   const pr = prefsProgress(me);
   const steps = [
-    { done: !!me.avatar_path, t: "Add a profile photo", d: "So the family sees your face, not just a letter.", go: { name: "settings" } },
-    { done: !!me.birth_month, t: "Add your birthday", d: "The family gets a reminder to wish you well.", go: { name: "settings" } },
-    { done: !!(me.bio || "").trim() && !!(me.relation || "").trim(), t: "Say a little about you", d: "A short bio and how you fit in the family.", go: { name: "settings" } },
+    { done: !!me.avatar_path, t: "Add a profile photo", d: "So the family sees your face, not just a letter.", go: { name: "editprofile" } },
+    { done: !!me.birth_month, t: "Add your birthday", d: "The family gets a reminder to wish you well.", go: { name: "editprofile" } },
+    { done: !!(me.bio || "").trim() && !!(me.relation || "").trim(), t: "Say a little about you", d: "A short bio and how you fit in the family.", go: { name: "editprofile" } },
     { done: pr.done >= 5, t: "Answer 5 get-to-know-you questions", d: pr.done + " of 5 so far. They take seconds, and make gifts easy.", go: { name: "prefs" } },
     { done: !!(me.theme && Object.keys(me.theme).length) || !!me.cover_path, t: "Make your page yours", d: "Pick a cover photo, colors and a song.", go: { name: "theme" } },
     { done: pr.full, t: "Reach " + PREFS_GOAL + " answers", d: pr.done + " of " + PREFS_GOAL + ". Almost a full profile.", go: { name: "prefs" } }
@@ -1610,6 +1611,7 @@ function Home() {
       ${news && daysSince(news.created_at) < 14 && html`<${NewsCard} item=${news} />`}
       ${prompt && daysSince(prompt.created_at) < 14 && html`<${PromptCard} prompt=${prompt} answers=${answers} />`}
       ${noteSheet && html`<${NoteSheet} target=${noteSheet} onClose=${function () { setNoteSheet(null); }} onDone=${load} />`}
+      <${InstallBanner} />
       <${PushAsk} />
       <${CallBanner} />
       ${profilePct(me) < PROFILE_GOAL ? html`<${ProfilePoke} />` : !crowded && html`<${ProfileNudge} />`}
@@ -2265,6 +2267,25 @@ function InstallSteps({ installable }) {
   </ol>`;
 }
 
+/* Round 29: a gentle "put me on your home screen" card on Home for phones that have not installed yet */
+function InstallBanner() {
+  const installable = useInstallable();
+  const [snooze, setSnooze] = useState(Number(lsGet("ic-inst-snooze", "0")) || 0);
+  const [open, setOpen] = useState(false);
+  if (!isPhoneOrTablet() || isStandalone() || Date.now() < snooze) return null;
+  function later() { const t = Date.now() + 2 * 86400000; lsSet("ic-inst-snooze", String(t)); setSnooze(t); }
+  async function go() { if (installable) { await runInstall(); } else setOpen(true); }
+  return html`<div className="pcard slim nudge">
+    <div className="grow"><div className="pk">Make it an app</div>
+      <div className="pt">Put Inner Circle on your home screen</div>
+      <div className="muted" style=${{ fontSize: ".78rem" }}>${installable ? "One tap. The icon lands on your home screen." : isIOS() ? "Takes 3 taps in Safari. We will show you how." : "We will show you the two taps."}</div></div>
+    <div className="col" style=${{ display: "flex", flexDirection: "column", gap: ".2rem", alignItems: "stretch" }}>
+      <button className="btn sm" onClick=${go}>${installable ? "Install" : "Show me"}</button>
+      <button className="linkbtn" onClick=${later}>Later</button></div>
+    ${open && html`<${Sheet} title="Add to your home screen" onClose=${function () { setOpen(false); }}><${InstallSteps} installable=${installable} /></${Sheet}>`}
+  </div>`;
+}
+
 /* =====================  welcome (first time in)  ===================== */
 function Welcome({ onDone }) {
   const { me, easy, setEasy, reloadMe, reloadProfiles, toast } = useApp();
@@ -2433,10 +2454,10 @@ function ProfileBar({ pct }) {
 }
 function profileNextStep(me) {
   const pr = prefsProgress(me);
-  if (!me.avatar_path) return { t: "Add a profile photo", d: "So the family sees your face, not just a letter.", go: { name: "settings" } };
-  if (!me.birth_month) return { t: "Add your birthday", d: "The family gets a reminder to wish you well.", go: { name: "settings" } };
+  if (!me.avatar_path) return { t: "Add a profile photo", d: "So the family sees your face, not just a letter.", go: { name: "editprofile" } };
+  if (!me.birth_month) return { t: "Add your birthday", d: "The family gets a reminder to wish you well.", go: { name: "editprofile" } };
   if (pr.done < 10) return { t: "Answer a few get-to-know-you questions", d: pr.done + " answered. They take seconds and power the family games.", go: { name: "prefs" } };
-  if (!(me.bio || "").trim()) return { t: "Say a little about you", d: "A short bio helps everyone know you.", go: { name: "settings" } };
+  if (!(me.bio || "").trim()) return { t: "Say a little about you", d: "A short bio helps everyone know you.", go: { name: "editprofile" } };
   return { t: "Answer a few more questions", d: pr.done + " answered so far.", go: { name: "prefs" } };
 }
 function ProfilePoke() {
@@ -2499,32 +2520,47 @@ function PrefsEditor() {
   const cur = { fav: fav, loves: loves, nots: nots, duel: duel, say: say, emoji: emoji, tl: tlOk ? { t: tl.t.map(function (s) { return s.trim(); }), lie: tl.lie } : null };
   const pr = prefsProgress({ prefs: cur });
   const tog = function (list, set) { return function (o) { set(list.indexOf(o) >= 0 ? list.filter(function (x) { return x !== o; }) : list.concat([o])); }; };
-  async function save() {
-    setBusy(true);
+  const dirty = useRef(false), first = useRef(true), persistRef = useRef(null);
+  const [savedAt, setSavedAt] = useState("");
+  async function save(quiet, leaving) {
+    quiet = quiet === true;
+    if (!quiet) setBusy(true);
     const clean = {}; const cleanSay = {};
     Object.keys(fav).forEach(function (k) { const v = (fav[k] || "").trim(); if (v) clean[k] = v; });
     Object.keys(say).forEach(function (k) { const v = (say[k] || "").trim(); if (v) cleanSay[k] = v; });
     const out = { fav: clean, loves: loves, nots: nots, duel: duel, say: cleanSay, emoji: emoji };
     if (cur.tl) out.tl = cur.tl;
     const r = await sb.from("profiles").update({ prefs: out }).eq("id", me.id);
-    setBusy(false);
+    if (!quiet) setBusy(false);
     if (r.error) { toast(r.error.message); return; }
-    toast("Saved. Your family can get to know you better.");
+    dirty.current = false;
+    if (!leaving) setSavedAt("Saved ✓");
     await reloadMe();
     reloadProfiles();
-    back();
+    if (!quiet) { toast("Saved. Your family can get to know you better."); back(); }
   }
-  const H = function (t, sub, top) { return html`<div style=${{ margin: (top || "1.4rem") + " 1rem .5rem" }}><h2 className="serif sec" style=${{ margin: 0 }}>${t}</h2>${sub && html`<div className="muted" style=${{ fontSize: ".85rem" }}>${sub}</div>`}</div>`; };
+  persistRef.current = save;
+  /* autosave a moment after you stop, and when you leave, so nothing is lost */
+  useEffect(function () {
+    if (first.current) { first.current = false; return; }
+    dirty.current = true; setSavedAt("");
+    const t = setTimeout(function () { if (persistRef.current) persistRef.current(true); }, 1200);
+    return function () { clearTimeout(t); };
+  }, [fav, loves, nots, duel, say, emoji, tl]);
+  useEffect(function () { return function () { if (dirty.current && persistRef.current) persistRef.current(true, true); }; }, []);
+  function jump(id) { const el = document.getElementById(id); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  const H = function (t, sub, top, id) { return html`<div id=${id || null} style=${{ margin: (top || "1.4rem") + " 1rem .5rem" }}><h2 className="serif sec" style=${{ margin: 0 }}>${t}</h2>${sub && html`<div className="muted" style=${{ fontSize: ".85rem" }}>${sub}</div>`}</div>`; };
   const freeS = SENTENCES.filter(function (s) { return openS.indexOf(s[0]) < 0; });
   return html`<div>
-    <${TopBar} title="Get to know me" back=${back} right=${html`<button className="tbtn" onClick=${save} disabled=${busy}>${busy ? "..." : "Save"}</button>`} />
+    <${TopBar} title="Get to know me" back=${back} right=${html`<button className="tbtn" onClick=${function () { save(false); }} disabled=${busy}>${busy ? "..." : "Done"}</button>`} />
     <div style=${{ padding: "1rem 1rem 0" }}>
       <div style=${{ fontWeight: 600 }}>${pr.full ? "🎉 " : ""}${pr.done} answered${pr.full ? ". Your family can really get to know you!" : ""}</div>
       <div className="meter" style=${{ marginTop: ".4rem" }}><i style=${{ width: Math.min(100, Math.round(pr.done * 100 / pr.total)) + "%" }}></i></div>
-      <p className="muted" style=${{ fontSize: ".85rem" }}>Answer as many or as few as you like. Little things help family pick gifts, plan dinners and start conversations. You can come back and add more any time.</p>
+      <p className="muted" style=${{ fontSize: ".85rem" }}>Answer as many or as few as you like. Little things help family pick gifts, plan dinners and start conversations. You can come back and add more any time. ${savedAt || "Your answers save by themselves."}</p>
+      <div className="chips jumpbar"><span className="muted" style=${{ fontSize: ".8rem", alignSelf: "center" }}>Jump to:</span>${[["pg-emoji", "😀 Emoji"], ["pg-0", "⭐ Favorites"], ["pg-say", "✍️ Sentences"], ["pg-tl", "🕵️ Truths"], ["pg-loves", "❤️ Loves"], ["pg-duel", "⚖️ This or that"]].map(function (j) { return html`<button type="button" key=${j[0]} className="chip" onClick=${function () { jump(j[0]); }}>${j[1]}</button>`; })}</div>
     </div>
 
-    ${H("Me in emoji", "Pick up to " + MAX_EMOJI + " emoji that sum you up. Tap one to remove it.", ".6rem")}
+    ${H("Me in emoji", "Pick up to " + MAX_EMOJI + " emoji that sum you up. Tap one to remove it.", ".6rem", "pg-emoji")}
     <div style=${{ padding: "0 1rem" }}>
       <div className="myemoji">${emoji.length === 0 && html`<span className="muted">None yet</span>`}${emoji.map(function (em, i) {
         return html`<button type="button" key=${i} aria-label=${"Remove " + em} onClick=${function () { setEmoji(emoji.filter(function (_, j) { return j !== i; })); }}>${em}</button>`;
@@ -2532,7 +2568,7 @@ function PrefsEditor() {
     </div>
 
     ${FAV_GROUPS.map(function (gname, gi) {
-      return html`<div key=${gname}>${H(gname, gi === 0 ? "" : "", gi === 0 ? "1.4rem" : "1.4rem")}
+      return html`<div key=${gname}>${H(gname, "", "1.4rem", "pg-" + gi)}
         <div style=${{ padding: "0 1rem" }}>${FAVS.filter(function (f) { return f.g === gi; }).map(function (f) {
           return html`<div key=${f.k} style=${{ marginBottom: ".8rem" }}>
             <label htmlFor=${"fv-" + f.k} style=${{ fontWeight: 600, fontSize: ".9rem" }}><span aria-hidden="true">${f.e} </span>${f.l}</label>
@@ -2541,7 +2577,7 @@ function PrefsEditor() {
         })}</div></div>`;
     })}
 
-    ${H("Finish my sentence", "Pick a few starters and complete them in your own words.")}
+    ${H("Finish my sentence", "Pick a few starters and complete them in your own words.", null, "pg-say")}
     <div style=${{ padding: "0 1rem" }}>
       ${openS.map(function (k) {
         const s = SENTENCES.find(function (x) { return x[0] === k; });
@@ -2555,7 +2591,7 @@ function PrefsEditor() {
         <div className="chips">${freeS.map(function (s) { return html`<button type="button" key=${s[0]} className="chip" onClick=${function () { setOpenS(openS.concat([s[0]])); }}>${s[1]}</button>`; })}</div>`}
     </div>
 
-    ${H("Two truths and a lie", "Write three things about yourself. Two true, one made up. Family will try to guess the lie.")}
+    ${H("Two truths and a lie", "Write three things about yourself. Two true, one made up. Family will try to guess the lie.", null, "pg-tl")}
     <div style=${{ padding: "0 1rem" }}>${[0, 1, 2].map(function (i) {
       return html`<div key=${i} style=${{ marginBottom: ".7rem" }}>
         <label htmlFor=${"tl-" + i} style=${{ fontWeight: 600, fontSize: ".9rem" }}>Statement ${i + 1}</label>
@@ -2565,13 +2601,13 @@ function PrefsEditor() {
     })}
       ${!tlOk && (tl.t.some(function (s) { return s.trim(); }) || tl.lie >= 0) && html`<div className="muted" style=${{ fontSize: ".85rem" }}>Fill in all three and mark the lie to save this one.</div>`}</div>
 
-    ${H("Things I love", "Tap all that fit, or add your own.")}
+    ${H("Things I love", "Tap all that fit, or add your own.", null, "pg-loves")}
     <div style=${{ padding: "0 1rem" }}><${Chips} options=${LOVES} picked=${loves} max=${30} tone="love" onToggle=${tog(loves, setLoves)} onAdd=${function (v) { setLoves(loves.concat([v])); }} /></div>
 
     ${H("Not so much", "")}
     <div style=${{ padding: "0 1rem" }}><${Chips} options=${NOTS} picked=${nots} max=${24} tone="not" onToggle=${tog(nots, setNots)} onAdd=${function (v) { setNots(nots.concat([v])); }} /></div>
 
-    ${H("This or that", "Tap your pick. Tap again to clear.")}
+    ${H("This or that", "Tap your pick. Tap again to clear.", null, "pg-duel")}
     <div style=${{ padding: "0 1rem" }}>${DUELS.map(function (d) {
       const pick = function (side) { setDuel(function (o) { const n = Object.assign({}, o); if (n[d[0]] === side) delete n[d[0]]; else n[d[0]] = side; return n; }); };
       return html`<div className="duel" key=${d[0]}>
@@ -2579,7 +2615,7 @@ function PrefsEditor() {
         <span aria-hidden="true">or</span>
         <button type="button" className=${duel[d[0]] === "b" ? "on" : ""} aria-pressed=${duel[d[0]] === "b"} onClick=${function () { pick("b"); }}>${d[2]}</button></div>`;
     })}</div>
-    <div style=${{ padding: "1.2rem 1rem 2rem" }}><button className="btn block" style=${{ height: "3.1rem" }} onClick=${save} disabled=${busy}>Save</button></div>
+    <div style=${{ padding: "1.2rem 1rem 2rem" }}><button className="btn block" style=${{ height: "3.1rem" }} onClick=${function () { save(false); }} disabled=${busy}>Done</button></div>
   </div>`;
 }
 
@@ -2698,7 +2734,7 @@ function GuessWho() {
     ${rows && (withFacts < 1 || people.length < 2) && html`<div className="center" style=${{ padding: "3rem 1.5rem" }}>
       <div style=${{ fontSize: "3rem" }}>🕵️</div>
       <div className="serif" style=${{ fontSize: "1.3rem", color: "var(--green)", margin: ".4rem 0" }}>Not enough answers yet</div>
-      <div className="muted">Guess who needs at least two other family members to have filled in Get to know me. Ask them to open More, then Settings, then Get to know me.</div>
+      <div className="muted">Guess who needs at least two other family members to have filled in Get to know me. Ask them to open More, then Edit my profile, then Get to know me.</div>
       <button className="btn sm" style=${{ marginTop: ".6rem" }} onClick=${function () { push({ name: "prefs" }); }}>Fill in mine</button></div>`}
     ${q && !done && html`<div style=${{ padding: "1rem" }}>
       <div className="muted" style=${{ fontWeight: 600 }}>Question ${round + 1} of ${withFacts} · Score ${score}</div>
@@ -2968,7 +3004,7 @@ function Profile({ userId, root }) {
       </div>
       <div className="row" style=${{ padding: "0 1.1rem 1rem" }}>
         ${mine
-          ? html`<button className="btn grey grow" onClick=${function () { push({ name: "settings" }); }}>Edit profile</button>
+          ? html`<button className="btn grey grow" onClick=${function () { push({ name: "editprofile" }); }}>Edit profile</button>
             <button className="btn grow" onClick=${function () { push({ name: "theme" }); }}>🎨 Customize</button>`
           : html`<button className="btn grow" onClick=${function () { openHello(userId); }}>Say hello</button>`}
       </div>
@@ -3249,9 +3285,9 @@ function Celebrations() {
     })}</div>`}
     ${an.rows && soon.length > 0 && html`<div className="hdr">Coming up</div>`}
     ${an.rows && soon.map(row)}
-    ${an.rows && list.length === 0 && html`<div className="center muted" style=${{ padding: "2.5rem 1.5rem" }}>No special days yet. Add your birthday in Settings, and add anyone else's birthday or anniversary with the Add button.</div>`}
+    ${an.rows && list.length === 0 && html`<div className="center muted" style=${{ padding: "2.5rem 1.5rem" }}>No special days yet. Add your birthday in More, then Edit my profile, and add anyone else's birthday or anniversary with the Add button.</div>`}
     ${an.rows && html`<div style=${{ padding: "1rem" }}>
-      ${iMissing && html`<button className="btn block" style=${{ marginBottom: ".6rem" }} onClick=${function () { push({ name: "settings" }); }}>Add my birthday</button>`}
+      ${iMissing && html`<button className="btn block" style=${{ marginBottom: ".6rem" }} onClick=${function () { push({ name: "editprofile" }); }}>Add my birthday</button>`}
       <div className="row" style=${{ gap: ".6rem" }}>
         <button className="btn grey grow" onClick=${function () { setForm({ startKind: "birthday" }); }}>🎂 Add a birthday</button>
         <button className="btn grey grow" onClick=${function () { setForm({ startKind: "anniversary" }); }}>💍 Add an anniversary</button>
@@ -3947,7 +3983,8 @@ function MoreScreen() {
     </div>
     <h2 className="morehd">You and help</h2>
     <div className="tiles">
-      <${Tile} icon="⚙️" label="Settings" sub="Photo, birthday, notifications" onClick=${function () { push({ name: "settings" }); }} />
+      <${Tile} icon="✏️" label="Edit my profile" sub="Photo, bio, birthday, favorites" onClick=${function () { push({ name: "editprofile" }); }} />
+      <${Tile} icon="⚙️" label="Settings" sub="Notifications, phone, text size" onClick=${function () { push({ name: "settings" }); }} />
       <${Tile} icon="❓" label="Help and privacy" sub="Who sees what" onClick=${function () { push({ name: "help" }); }} />
       ${admin && html`<${Tile} icon="🛠️" label="Manage" sub=${pendingCount > 0 ? pendingCount + " waiting to join" : "Organizer tools"} dot=${pendingCount > 0} onClick=${function () { push({ name: "organizer" }); }} />`}
     </div>
@@ -4796,7 +4833,7 @@ function HelpScreen() {
           <li>Photos, videos and voice memos are kept in private storage. They are shown only to signed-in members, through short-lived links.</li>
           <li>There are no ads, no tracking and no analytics. Nothing is sold.</li>
           <li>A post shared with a group, or hidden from someone, is not visible to the people left out.</li>
-          <li>Your birthday shows the month and day. Adding the year is optional; if you do, family sees the age you are turning. You can remove it any time in Settings.</li>
+          <li>Your birthday shows the month and day. Adding the year is optional; if you do, family sees the age you are turning. You can remove it any time in Edit my profile.</li>
           <li>"Your day" posts and notes disappear from the top of Home after 24 hours.</li>
           <li>Video chats are never recorded or saved.</li>
         </ul>
@@ -4917,8 +4954,11 @@ function Activity() {
 }
 
 /* =====================  settings / edit profile  ===================== */
-function Settings() {
+function Settings({ only }) {
+  const profileMode = only === "profile";
   const { me, toast, back, reloadProfiles, reloadMe, easy, setEasy, push } = useApp();
+  const [savedMsg, setSavedMsg] = useState("");
+  const flushRef = useRef(null);
   const installable = useInstallable();
   const [name, setName] = useState(me.display_name || "");
   const [relation, setRelation] = useState(me.relation || "");
@@ -5013,10 +5053,11 @@ function Settings() {
     setArch("");
   }
 
-  async function save() {
+  async function save(quiet) {
+    quiet = quiet === true;
     const n = name.trim();
-    if (!n) { toast("Your name cannot be empty."); return; }
-    if ((bm && !bd) || (!bm && bd)) { toast("Pick both the month and the day for your birthday."); return; }
+    if (!n) { if (!quiet) toast("Your name cannot be empty."); return; }
+    if ((bm && !bd) || (!bm && bd)) { if (!quiet) toast("Pick both the month and the day for your birthday."); return; }
     setBusy(true);
     const r = await sb.from("profiles").update({ display_name: n, relation: relation.trim(), bio: bio.trim() }).eq("id", me.id);
     if (!r.error && bm && bd && (bm !== me.birth_month || bd !== me.birth_day || (by || 0) !== (me.birth_year || 0))) {
@@ -5025,14 +5066,32 @@ function Settings() {
     }
     setBusy(false);
     if (r.error) { toast(r.error.message); return; }
-    toast("Profile saved");
+    if (!quiet) toast("Profile saved");
+    setSavedMsg("Saved ✓");
     await reloadMe();
     reloadProfiles();
   }
+  /* autosave: a moment after you stop typing, and again when you leave the screen */
+  const profChanged = name.trim() !== (me.display_name || "") || relation.trim() !== (me.relation || "") || bio.trim() !== (me.bio || "") || bm !== (me.birth_month || 0) || bd !== (me.birth_day || 0) || (by || 0) !== (me.birth_year || 0);
+  const profValid = !!name.trim() && !!bm === !!bd;
+  flushRef.current = function () { if (profileMode && profChanged && profValid) save(true); };
+  useEffect(function () {
+    if (!profileMode) return;
+    setSavedMsg("");
+    const t = setTimeout(function () { if (flushRef.current) flushRef.current(); }, 1500);
+    return function () { clearTimeout(t); };
+  }, [name, relation, bio, bm, bd, by]);
+  useEffect(function () { return function () { if (flushRef.current) flushRef.current(); }; }, []);
 
   return html`
     <div>
-      <${TopBar} title="Edit profile" back=${back} right=${html`<button className="tbtn" onClick=${save} disabled=${busy}>Save</button>`} />
+      <${TopBar} title=${profileMode ? "Edit my profile" : "Settings"} back=${back} right=${profileMode ? html`<button className="tbtn" onClick=${function () { save(false); }} disabled=${busy}>${busy ? "..." : "Save"}</button>` : null} />
+      ${!profileMode && html`<button className="listrow" onClick=${function () { push({ name: "editprofile" }); }}>
+        <${Avatar} id=${me.id} name=${me.display_name} size=${44} />
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Edit my profile</div><div className="muted" style=${{ fontSize: ".8rem" }}>Photo, name, bio, birthday, favorites. ${profilePct(me)}% done</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>`}
+      ${profileMode && html`<div>
       <div className="center" style=${{ padding: "1.2rem 1rem .2rem" }}>
         <input ref=${photoInput} type="file" accept="image/*" onChange=${pickPhoto} style=${{ display: "none" }} />
         <button aria-label="Change profile photo" onClick=${function () { photoInput.current.click(); }} disabled=${photoBusy} style=${{ background: "none", border: 0, padding: 0, cursor: "pointer", position: "relative" }}>
@@ -5057,9 +5116,16 @@ function Settings() {
       </div>
       <div style=${{ padding: ".6rem 1rem" }}><div style=${{ fontWeight: 600 }}>Profile ${profilePct(me)}% done</div><${ProfileBar} pct=${profilePct(me)} /><div className="muted" style=${{ fontSize: ".78rem" }}>${profilePct(me) >= PROFILE_GOAL ? "Nicely done. More answers make the games better." : "Reach " + PROFILE_GOAL + "% to unlock the family games."}</div></div>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "prefs" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>Favorites, finish-the-sentence, two truths and a lie, emoji</div></div>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>${prefsProgress(me).done} answered. Favorites, sentences, two truths and a lie, emoji</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
       </button>
+      <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "theme" }); }}>
+        <div className="grow"><div style=${{ fontWeight: 600 }}>My page: cover, colors, song</div><div className="muted" style=${{ fontSize: ".8rem" }}>Make your profile page yours</div></div>
+        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      </button>
+      <div className="muted center" style=${{ fontSize: ".8rem", padding: ".8rem 1rem 2rem" }}>${savedMsg || "Changes save by themselves."}</div>
+      </div>`}
+      ${!profileMode && html`<div>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "help" }); }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>Help and privacy</div><div className="muted" style=${{ fontSize: ".8rem" }}>How your information is handled, and how to get unstuck</div></div>
         <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
@@ -5115,6 +5181,7 @@ function Settings() {
         </ul>
       </div>
       <div style=${{ padding: "1rem" }}><button className="btn grey block" onClick=${signOutClean}>Sign out</button></div>
+      </div>`}
     </div>`;
 }
 
@@ -5281,12 +5348,16 @@ function NoteSheet({ target, onClose, onDone }) {
 /* ---- Family prompts ("Add yours") ---- */
 function PromptCard({ prompt, answers }) {
   const { me, push } = useApp();
+  const key = "ic-prompt-hide-" + prompt.id;
+  const [hidden, setHidden] = useState(lsGet(key, "") === "1");
+  if (hidden) return null;
   const done = answers.some(function (a) { return a.author_id === me.id; });
-  return html`<div className=${"pcard slim" + (done ? " tiny" : "")}>
-    <div className="grow"><div className="pk">${done ? "Family question" : "Add yours"}${answers.length > 0 ? " · " + answers.length + (answers.length === 1 ? " answer" : " answers") : ""}</div>
+  return html`<div className="pcard slim tiny quiet">
+    <div className="grow"><div className="pk">Family question${answers.length > 0 ? " · " + answers.length + (answers.length === 1 ? " answer" : " answers") : ""}</div>
       <div className="pt"><${Linkify} text=${prompt.body} /></div></div>
     ${done ? html`<button className="btn sm grey" onClick=${function () { push({ name: "prompt", id: prompt.id }); }}>See ${answers.length}</button>`
-      : html`<button className="btn sm" onClick=${function () { push({ name: "new", promptId: prompt.id, promptText: prompt.body }); }}>Add yours</button>`}
+      : html`<button className="btn sm grey" onClick=${function () { push({ name: "new", promptId: prompt.id, promptText: prompt.body }); }}>Add yours</button>`}
+    <button className="linkbtn" aria-label="Hide this question" onClick=${function () { lsSet(key, "1"); setHidden(true); }}>✕</button>
   </div>`;
 }
 
@@ -5762,7 +5833,8 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "call": return html`<${CallScreen} id=${route.id} key=${route.id} />`;
       case "wall": return html`<${PhotoWall} id=${route.id} />`;
       case "story": return html`<${StoryViewer} authorId=${route.authorId} />`;
-      case "settings": return html`<${Settings} />`;
+      case "settings": return html`<${Settings} only="settings" />`;
+      case "editprofile": return html`<${Settings} only="profile" />`;
       case "prefs": return html`<${PrefsEditor} />`;
       case "help": return html`<${HelpScreen} />`;
       case "polls": return html`<${PollsScreen} />`;
