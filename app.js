@@ -4954,7 +4954,7 @@ function Activity() {
 }
 
 /* =====================  settings / edit profile  ===================== */
-const APP_VERSION = "62";
+const APP_VERSION = "63";
 function Settings({ only }) {
   const profileMode = only === "profile";
   const { me, toast, back, reloadProfiles, reloadMe, easy, setEasy, push } = useApp();
@@ -5116,9 +5116,10 @@ function Settings({ only }) {
         <${MonthDay} idp="s-bd" m=${bm} d=${bd} onM=${setBm} onD=${setBd} y=${by} onY=${setBy} />
       </div>
       <div style=${{ padding: ".6rem 1rem" }}><div style=${{ fontWeight: 600 }}>Profile ${profilePct(me)}% done</div><${ProfileBar} pct=${profilePct(me)} /><div className="muted" style=${{ fontSize: ".78rem" }}>${profilePct(me) >= PROFILE_GOAL ? "Nicely done. More answers make the games better." : "Reach " + PROFILE_GOAL + "% to unlock the family games."}</div></div>
-      <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "prefs" }); }}>
-        <div className="grow"><div style=${{ fontWeight: 600 }}>Get to know me</div><div className="muted" style=${{ fontSize: ".8rem" }}>${prefsProgress(me).done} answered. Favorites, sentences, two truths and a lie, emoji</div></div>
-        <${Icon} n="chev" s=${20} sw=${2} color="#6b6b6b" />
+      <button className="gtkm" onClick=${function () { push({ name: "prefs" }); }}>
+        <span className="gtkm-e" aria-hidden="true">✨</span>
+        <div className="grow" style=${{ textAlign: "left" }}><div className="gtkm-t">Get to know me</div><div className="muted" style=${{ fontSize: ".82rem" }}>${prefsProgress(me).done} answered. Favorites, sentences, two truths and a lie, emoji</div></div>
+        <${Icon} n="chev" s=${22} sw=${2.2} color="#0879a0" />
       </button>
       <button className="listrow" style=${{ borderTop: "1px solid var(--soft)" }} onClick=${function () { push({ name: "theme" }); }}>
         <div className="grow"><div style=${{ fontWeight: 600 }}>My page: cover, colors, song</div><div className="muted" style=${{ fontSize: ".8rem" }}>Make your profile page yours</div></div>

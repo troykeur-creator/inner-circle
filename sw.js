@@ -1,67 +1,76 @@
-// Tiny service worker: lets Inner Circle open instantly and keeps the app shell available offline.
-// Photos and family data are never cached here; they always come fresh from your private database.
-const CACHE = "inner-circle-v62";
-const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.json", "icon.svg",
-  "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
+/* Inner Circle service worker: keeps the app opening fast, and shows push notifications. */
+const CACHE = "inner-circle-v63";
+const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
-self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
-});
-
-self.addEventListener("activate", (e) => {
+self.addEventListener("install", function (e) {
   e.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
+    caches.open(CACHE).then(function (c) {
+      return Promise.all(SHELL.map(function (u) { return c.add(u).catch(function () {}); }));
+    }).then(function () { return self.skipWaiting(); })
   );
 });
 
-self.addEventListener("fetch", (e) => {
+self.addEventListener("activate", function (e) {
+  e.waitUntil(
+    caches.keys().then(function (keys) {
+      return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); }));
+    }).then(function () { return self.clients.claim(); })
+  );
+});
+
+/* network first, so a new upload always wins; the saved copy is only a fallback when offline */
+self.addEventListener("fetch", function (e) {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin === "https://esm.sh") {
-    // The app's code libraries never change for a given address: keep a copy so the app opens fast and works offline.
-    e.respondWith(caches.open(CACHE).then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => {
-      if (res.ok) c.put(req, res.clone());
-      return res;
-    }))));
-    return;
-  }
-  if (url.origin !== self.location.origin) return; // never touch database or photo requests
+  const sameOrigin = url.origin === self.location.origin;
+  const lib = url.hostname === "esm.sh";
+  if (!sameOrigin && !lib) return;   // database, storage and video calls are never touched
   e.respondWith(
-    fetch(req)
-      .then((res) => {
-        if (res.ok && !url.search) {   // never keep invite or event links in the cache
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
-        }
-        return res;
-      })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match("index.html")))
+    fetch(req).then(function (res) {
+      if (res && res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(req, copy); }).catch(function () {});
+      }
+      return res;
+    }).catch(function () {
+      return caches.match(req).then(function (hit) {
+        return hit || (req.mode === "navigate" ? caches.match("index.html") : undefined) || Response.error();
+      });
+    })
   );
 });
 
-// Push notifications: shows a short message when the family shares something.
-self.addEventListener("push", (e) => {
+self.addEventListener("push", function (e) {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title: "Inner Circle", body: e.data ? e.data.text() : "" }; }
+  const tag = d.tag || "inner-circle";
+  const ring = /^call-/.test(tag);
   e.waitUntil(self.registration.showNotification(d.title || "Inner Circle", {
     body: d.body || "",
-    tag: d.tag || "inner-circle",
+    tag: tag,
     icon: "icon-192.png",
     badge: "icon-192.png",
-    data: { url: d.url || "./" },
+    renotify: true,
+    requireInteraction: ring,
+    data: { url: d.url || "./" }
   }));
 });
 
-self.addEventListener("notificationclick", (e) => {
+self.addEventListener("notificationclick", function (e) {
   e.notification.close();
-  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-    const url = (e.notification.data && e.notification.data.url) || "./";
-    for (const c of list) {
-      if ("focus" in c) return c.focus().then((cl) => (cl && url !== "./" && "navigate" in cl ? cl.navigate(url) : cl));
-    }
-    return self.clients.openWindow(url);
-  }));
+  const target = new URL((e.notification.data && e.notification.data.url) || "./", self.registration.scope).href;
+  const hasLink = /[?#]/.test(target);
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (list) {
+      for (const c of list) {
+        if (c.url.indexOf(self.registration.scope) === 0) {
+          /* open links (a call, a chat) need a fresh load; a plain tap just brings the app forward */
+          if (hasLink && c.navigate) return c.navigate(target).then(function (w) { return (w || c).focus(); }).catch(function () { return c.focus(); });
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
 });
