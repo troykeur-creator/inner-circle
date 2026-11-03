@@ -4954,6 +4954,7 @@ function Activity() {
 }
 
 /* =====================  settings / edit profile  ===================== */
+const APP_VERSION = "62";
 function Settings({ only }) {
   const profileMode = only === "profile";
   const { me, toast, back, reloadProfiles, reloadMe, easy, setEasy, push } = useApp();
@@ -5181,6 +5182,7 @@ function Settings({ only }) {
         </ul>
       </div>
       <div style=${{ padding: "1rem" }}><button className="btn grey block" onClick=${signOutClean}>Sign out</button></div>
+      <div className="muted center" style=${{ fontSize: ".75rem", paddingBottom: "1.5rem" }}>Inner Circle version ${APP_VERSION}</div>
       </div>`}
     </div>`;
 }
