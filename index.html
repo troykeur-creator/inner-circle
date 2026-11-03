@@ -564,7 +564,10 @@
   /* Round 29: the family row scrolls and snaps like Coming up, with the next person peeking in */
   .stories { overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none; scroll-padding-left: .9rem; }
   .stories::-webkit-scrollbar { display: none; }
-  .story { width: clamp(3.9rem, calc((100vw - 1.8rem - 2rem) / 4.5), 5rem); scroll-snap-align: start; }
+  /* Round 32: tighter row */
+  .stories { gap: .15rem; padding-bottom: .4rem; }
+  .story { width: 4rem; scroll-snap-align: start; }
+  .story .ring { width: 3.6rem; height: 3.6rem; margin: 0 auto; }
   /* Round 30: the family question stays quiet */
   .pcard.quiet { background: #f1f6f8; }
   .pcard.quiet .pk { font-size: .66rem; color: var(--muted, #6b6b6b); }
