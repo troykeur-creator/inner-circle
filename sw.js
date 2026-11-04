@@ -1,5 +1,5 @@
 /* Inner Circle service worker: keeps the app opening fast, and shows push notifications. */
-const CACHE = "inner-circle-v63";
+const CACHE = "inner-circle-v64";
 const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", function (e) {

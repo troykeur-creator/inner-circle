@@ -3340,6 +3340,17 @@ async function shareEvent(ev, toast) {
   try { await navigator.clipboard.writeText(text + " " + link); toast("Link copied"); }
   catch (e) { window.prompt("Copy this link and send it:", text + " " + link); }
 }
+/* Round 34: a link that opens the "add photos" screen for an event as soon as the person is signed in */
+async function shareEventUpload(ev, toast) {
+  const link = location.origin + location.pathname + "?upload=" + encodeURIComponent(ev.id);
+  const text = "Add your photos and videos from " + ev.title + ". Open in Inner Circle (family only, you will be asked to sign in):";
+  if (navigator.share) {
+    try { await navigator.share({ title: "Photos: " + ev.title, text: text, url: link }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(text + " " + link); toast("Upload link copied"); }
+  catch (e) { window.prompt("Copy this link and send it:", text + " " + link); }
+}
 function DateBlock({ iso }) {
   const d = new Date(iso);
   return html`<div className="dateblock" aria-hidden="true"><span>${MONTHS_S[d.getMonth()]}</span><b>${d.getDate()}</b></div>`;
@@ -3627,6 +3638,7 @@ function EventScreen({ id }) {
       <div className="row" style=${{ gap: ".4rem", flexWrap: "wrap" }}>
         ${!st.past && html`<button className="linkbtn" onClick=${function () { addToCalendar(ev, toast); }}>Add to my calendar</button>`}
         <button className="linkbtn" onClick=${function () { shareEvent(ev, toast); }}>Share link with family</button>
+        ${ev.album_id && html`<button className="linkbtn" onClick=${function () { shareEventUpload(ev, toast); }}>Share photo upload link</button>`}
       </div>
     </div>
     ${!st.past && html`<div className="evsec">
@@ -4954,7 +4966,7 @@ function Activity() {
 }
 
 /* =====================  settings / edit profile  ===================== */
-const APP_VERSION = "63";
+const APP_VERSION = "64";
 function Settings({ only }) {
   const profileMode = only === "profile";
   const { me, toast, back, reloadProfiles, reloadMe, easy, setEasy, push } = useApp();
@@ -5728,6 +5740,16 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       if (id && /^[0-9a-f-]{36}$/i.test(id)) {
         history.replaceState({}, "", location.pathname);
         push({ name: "event", id: id });
+      }
+      const up = new URLSearchParams(location.search).get("upload");
+      if (up && /^[0-9a-f-]{36}$/i.test(up)) {
+        history.replaceState({}, "", location.pathname);
+        sb.from("events").select("id,title,album_id").eq("id", up).maybeSingle().then(function (r) {
+          const ev = r && r.data;
+          if (ev && ev.album_id) { push({ name: "event", id: ev.id }); push({ name: "new", albumId: ev.album_id, albumName: ev.title }); }
+          else if (ev) push({ name: "event", id: ev.id });
+          else toast("That event was not found.");
+        }).catch(function () {});
       }
     } catch (e) {}
   }, []);
