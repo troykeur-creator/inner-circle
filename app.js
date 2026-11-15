@@ -826,19 +826,27 @@ function PostCard({ post, onChange, albumId }) {
   const urls = useUrls(allPaths(post));
   const author = profiles[post.author_id] || {};
   const authorName = nm(author);
-  const hearted = post.hearts.some(function (h) { return h.user_id === me.id; });
-  const names = post.hearts.slice().sort(function (a) { return a.user_id === me.id ? -1 : 1; }).map(function (h) {
+  /* Round 35: with several photos, hearts and comments belong to the photo you are looking at */
+  const multi = !vp && paths.length > 1;
+  const tgt = multi ? Math.min(idx, paths.length - 1) : 0;
+  const hs = multi ? post.hearts.filter(function (h) { return (h.photo_idx || 0) === tgt; }) : post.hearts;
+  const hearted = hs.some(function (h) { return h.user_id === me.id; });
+  const names = hs.slice().sort(function (a) { return a.user_id === me.id ? -1 : 1; }).map(function (h) {
     return h.user_id === me.id ? "you" : nm(profiles[h.user_id]);
   });
   const mineOrAdmin = post.author_id === me.id || me.role === "admin";
-  const nComments = post.comments ? post.comments.length : 0;
+  const allComments = post.comments || [];
+  const nAll = allComments.length;
+  const nComments = multi ? allComments.filter(function (c) { return c.photo_idx === tgt; }).length : nAll;
+  const photoStat = function (k) { return { h: post.hearts.filter(function (h) { return (h.photo_idx || 0) === k; }).length, c: allComments.filter(function (c) { return c.photo_idx === k; }).length }; };
+  const openComments = function () { push({ name: "comments", postId: post.id, photoIdx: multi ? tgt : null }); };
 
   async function setHeart(on) {
     if (busy) return;
     setBusy(true);
     const r = on
-      ? await sb.from("hearts").insert({ post_id: post.id, user_id: me.id })
-      : await sb.from("hearts").delete().match({ post_id: post.id, user_id: me.id });
+      ? await sb.from("hearts").insert(tgt > 0 ? { post_id: post.id, user_id: me.id, photo_idx: tgt } : { post_id: post.id, user_id: me.id })
+      : await sb.from("hearts").delete().match({ post_id: post.id, user_id: me.id, photo_idx: tgt });
     if (r.error) toast(r.error.message);
     await onChange();
     setBusy(false);
@@ -902,6 +910,7 @@ function PostCard({ post, onChange, albumId }) {
             onClick=${function () { startRef.current = k; setStart(k); setIdx(k); setGrid(false); }}>
             ${urls(p) ? html`<img src=${urls(p)} alt=${"Photo " + (k + 1) + " of " + paths.length + " shared by " + authorName} draggable="false" />` : html`<span className="ph"></span>`}
             ${over && html`<span className="fmore">+${paths.length - 5}</span>`}
+            ${!over && (photoStat(k).h > 0 || photoStat(k).c > 0) && html`<span className="tcount">${photoStat(k).h > 0 ? "❤ " + photoStat(k).h : ""}${photoStat(k).h > 0 && photoStat(k).c > 0 ? "  " : ""}${photoStat(k).c > 0 ? "💬 " + photoStat(k).c : ""}</span>`}
           </button>`;
         })}
       </div>`}
@@ -912,7 +921,7 @@ function PostCard({ post, onChange, albumId }) {
               return html`<div className="slide" key=${p}>${urls(p) ? html`<img className="photo" src=${urls(p)} alt=${"Photo " + (k + 1) + " of " + paths.length + " shared by " + authorName} draggable="false" />` : html`<div className="photo ph"></div>`}</div>`;
             })}
           </div>
-          <div className="count" aria-hidden="true">${idx + 1}/${paths.length}</div>
+          <div className="count" aria-hidden="true">${idx + 1}/${paths.length}${photoStat(idx).h > 0 ? "  ❤ " + photoStat(idx).h : ""}${photoStat(idx).c > 0 ? "  💬 " + photoStat(idx).c : ""}</div>
           <button className="gridbtn" onClick=${function () { setGrid(true); }}>Grid</button>
           ${burst && html`<div className="pop"><${Icon} n="heart" s=${90} fill="#fff" color="#fff" sw=${1} /></div>`}
         </div>
@@ -922,16 +931,17 @@ function PostCard({ post, onChange, albumId }) {
         <button className=${"act" + (hearted ? " on" : "")} aria-label=${hearted ? "Remove your heart" : "Send a heart"} onClick=${function () { setHeart(!hearted); }}>
           <${Icon} n="heart" s=${26} fill=${hearted ? "#d1352b" : "none"} color=${hearted ? "#d1352b" : "currentColor"} />${names.length > 0 && html`<b>${names.length}</b>`}
         </button>
-        <button className="act" aria-label="Comments" onClick=${function () { push({ name: "comments", postId: post.id }); }}>
+        <button className="act" aria-label=${multi ? "Comments on photo " + (tgt + 1) : "Comments"} onClick=${openComments}>
           <${Icon} n="comment" s=${25} />${nComments > 0 && html`<b>${nComments}</b>`}
         </button>
+        ${multi && html`<span className="phototag">Photo ${tgt + 1} of ${paths.length}${grid ? ". Tap a photo to pick another" : ". Swipe for the next"}</span>`}
       </div>
       ${names.length > 0 && html`<div className="likes">${lovedBy(names)}</div>`}
       ${(paths.length > 0 || vp) && post.caption && html`<div className=${"cap" + (capOpen ? "" : " clamp")}><b style=${{ fontWeight: 600 }}>${authorName}</b> <${Linkify} text=${post.caption} /></div>
         ${!capOpen && post.caption.length > 110 && html`<button className="morebtn" onClick=${function () { setCapOpen(true); }}>more</button>`}`}
-      ${nComments > 0 && html`<button className="linkish" onClick=${function () { push({ name: "comments", postId: post.id }); }}>${nComments === 1 ? "View 1 comment" : "View all " + nComments + " comments"}</button>`}
-      <button className="addc" aria-label="Add a comment" onClick=${function () { push({ name: "comments", postId: post.id }); }}>
-        <${Avatar} id=${me.id} name=${me.display_name} size=${28} /><span>Add a comment...</span>
+      ${nAll > 0 && html`<button className="linkish" onClick=${function () { push({ name: "comments", postId: post.id, photoIdx: null }); }}>${nAll === 1 ? "View 1 comment" : "View all " + nAll + " comments"}${multi ? " on all photos" : ""}</button>`}
+      <button className="addc" aria-label="Add a comment" onClick=${openComments}>
+        <${Avatar} id=${me.id} name=${me.display_name} size=${28} /><span>${multi ? "Comment on photo " + (tgt + 1) + "..." : "Add a comment..."}</span>
       </button>
       <div className="time">${agoLong(post.created_at)}${post.edited_at ? " · edited" : ""}</div>
       ${post.audience_group && html`<div className="aud"><${Icon} n="lock" s=${13} sw=${2} /> ${(groupNames && groupNames[post.audience_group]) || "A private group"} only</div>`}
@@ -1527,7 +1537,7 @@ function Home() {
   const load = useCallback(async function () {
     const since = new Date(Date.now() - 86400000).toISOString();
     const res = await Promise.all([
-      sb.from("posts").select("*, comments(id), hearts(user_id)").order("created_at", { ascending: false }).limit(limit),
+      sb.from("posts").select("*, comments(id,photo_idx), hearts(user_id,photo_idx)").order("created_at", { ascending: false }).limit(limit),
       sb.from("posts").select("id,author_id,created_at").eq("also_day", true).gte("created_at", since).order("created_at"),
       sb.from("notes").select("*").gte("created_at", since),
       sb.from("prompts").select("*").order("created_at", { ascending: false }).limit(1),
@@ -1708,8 +1718,9 @@ function StoryViewer({ authorId }) {
 }
 
 /* =====================  comments (with replies)  ===================== */
-function Comments({ postId }) {
+function Comments({ postId, photoIdx }) {
   const { me, profiles, toast, back } = useApp();
+  const [sel, setSel] = useState(typeof photoIdx === "number" ? photoIdx : null);   /* which photo these comments are about; null = all */
   const [post, setPost] = useState(null);
   const [list, setList] = useState(null);
   const [err, setErr] = useState(false);
@@ -1736,10 +1747,16 @@ function Comments({ postId }) {
   }, [postId]);
   useEffect(function () { load(); }, [load]);
 
+  /* a reply stays on its parent's photo; a new comment goes on the photo chosen above. Nothing is added when there is no photo, so older posts behave as before. */
+  function withPhoto(row) {
+    const pi = replyTo ? (typeof replyTo.photo_idx === "number" ? replyTo.photo_idx : null) : sel;
+    if (typeof pi === "number") row.photo_idx = pi;
+    return row;
+  }
   async function sendBody(body) {
     if (!body || busy) return;
     setBusy(true);
-    const r = await sb.from("comments").insert({ post_id: postId, author_id: me.id, body: body, parent_id: replyTo ? replyTo.id : null });
+    const r = await sb.from("comments").insert(withPhoto({ post_id: postId, author_id: me.id, body: body, parent_id: replyTo ? replyTo.id : null }));
     if (r.error) toast(r.error.message); else { setText(""); setReplyTo(null); }
     await load();
     setBusy(false);
@@ -1756,7 +1773,7 @@ function Comments({ postId }) {
     try {
       const up = await sb.storage.from("photos").upload(path, f, { contentType: "image/gif" });
       if (up.error) throw up.error;
-      const r = await sb.from("comments").insert({ post_id: postId, author_id: me.id, body: text.trim(), gif_path: path, parent_id: replyTo ? replyTo.id : null });
+      const r = await sb.from("comments").insert(withPhoto({ post_id: postId, author_id: me.id, body: text.trim(), gif_path: path, parent_id: replyTo ? replyTo.id : null }));
       if (r.error) { sb.storage.from("photos").remove([path]); throw r.error; }
       setText(""); setReplyTo(null);
     } catch (err) { toast((err && err.message) || "Could not send that GIF."); }
@@ -1819,7 +1836,7 @@ function Comments({ postId }) {
         uploaded.push(ppath);
         row.media_path = vpath; row.media_kind = "video"; row.media_poster = ppath; row.media_seconds = Math.min(35, Math.round(res.seconds));
       }
-      const r = await sb.from("comments").insert(row);
+      const r = await sb.from("comments").insert(withPhoto(row));
       if (r.error) throw r.error;
       setText(""); setReplyTo(null); dropAtt();
     } catch (err) {
@@ -1852,9 +1869,14 @@ function Comments({ postId }) {
   }
 
   const authorOf = function (id) { return nm(profiles[id]); };
-  const thumbUrls = useUrls(post ? [post.image_path].filter(Boolean) : []);
-  const thumb = post && post.image_path ? thumbUrls(post.image_path) : null;
-  const all = list || [];
+  const pPaths = post && !post.video_path ? postPaths(post) : [];
+  const stripUrls = useUrls(pPaths);
+  const thumbPath = post ? (typeof sel === "number" && pPaths[sel] ? pPaths[sel] : post.image_path) : null;
+  const thumbUrls = useUrls(thumbPath ? [thumbPath] : []);
+  const thumb = thumbPath ? thumbUrls(thumbPath) : null;
+  const everyone = list || [];
+  const all = pPaths.length > 1 && typeof sel === "number" ? everyone.filter(function (c) { return c.photo_idx === sel; }) : everyone;
+  const countOn = function (k) { return everyone.filter(function (c) { return c.photo_idx === k; }).length; };
   const gifUrls = useUrls([].concat.apply([], all.map(function (c) { return [c.gif_path, c.media_path, c.media_poster]; })).filter(Boolean));
   const tops = all.filter(function (c) { return !c.parent_id; });
   const repliesOf = function (id) { return all.filter(function (c) { return c.parent_id === id; }); };
@@ -1866,6 +1888,7 @@ function Comments({ postId }) {
       <${Avatar} id=${c.author_id} name=${authorOf(c.author_id)} size=${reply ? 28 : 36} />
       <div className="grow" style=${{ fontSize: ".9rem" }}>
         <div style=${{ overflowWrap: "anywhere" }}><b style=${{ fontWeight: 600 }}>${authorOf(c.author_id)}</b> ${c.body ? html`<${Linkify} text=${c.body} />` : ""}</div>
+        ${typeof c.photo_idx === "number" && pPaths.length > 1 && sel === null && html`<button className="ontag" onClick=${function () { setSel(c.photo_idx); }}>on photo ${c.photo_idx + 1}</button>`}
         ${c.media_path && (gifUrls(c.media_path)
           ? (c.media_kind === "video"
             ? html`<video className="cmedia" src=${gifUrls(c.media_path)} poster=${(c.media_poster && gifUrls(c.media_poster)) || undefined} controls playsInline preload="metadata" aria-label="Video in a comment"></video>`
@@ -1894,9 +1917,17 @@ function Comments({ postId }) {
           <div className="clamp2">${post.caption || (thumb ? "Shared a photo" : "")}</div>
           <div className="muted" style=${{ fontSize: ".75rem", marginTop: ".1rem" }}>${agoShort(post.created_at)}</div>
         </div></div>`}
+      ${pPaths.length > 1 && html`<div className="pstrip" role="tablist" aria-label="Choose a photo">
+        <button className=${"pchip" + (sel === null ? " on" : "")} onClick=${function () { setSel(null); }}><b>All</b><small>${everyone.length}</small></button>
+        ${pPaths.map(function (p, k) {
+          return html`<button key=${p} className=${"pchip" + (sel === k ? " on" : "")} aria-label=${"Photo " + (k + 1) + ", " + countOn(k) + " comments"} onClick=${function () { setSel(k); }}>
+            ${stripUrls(p) ? html`<img src=${stripUrls(p)} alt="" />` : html`<span className="ph"></span>`}<small>${k + 1}${countOn(k) > 0 ? " · " + countOn(k) : ""}</small></button>`;
+        })}
+      </div>
+      <div className="muted" style=${{ fontSize: ".8rem", padding: ".1rem 1rem .4rem" }}>${typeof sel === "number" ? "Comments on photo " + (sel + 1) + ". New comments go here." : "Showing every photo. Pick one above to comment on just that photo."}</div>`}
       ${list && tops.length === 0 && html`<div className="cmtempty">
         <div className="bub"><${Icon} n="comment" s=${30} sw=${1.6} color="#0879a0" /></div>
-        <div className="serif" style=${{ fontSize: "1.25rem", color: "#0879a0" }}>Start the conversation</div>
+        <div className="serif" style=${{ fontSize: "1.25rem", color: "#0879a0" }}>${typeof sel === "number" ? "Be the first to comment on photo " + (sel + 1) : "Start the conversation"}</div>
         <div className="muted" style=${{ margin: ".2rem 0 .9rem" }}>Tap a quick reaction or write a few kind words.</div>
         <div className="qr">${QUICK.map(function (em) { return html`<button key=${em} aria-label=${"Send " + em} onClick=${function () { sendBody(em); }}>${em}</button>`; })}</div>
       </div>`}
@@ -1924,7 +1955,7 @@ function Comments({ postId }) {
           <button type="button" className="ibtn" aria-label="Add a GIF" disabled=${busy} onClick=${function () { if (cfg.GIPHY_KEY) setGifSheet(true); else gifIn.current.click(); }}><${Icon} n="gif" s=${26} sw=${1.8} /></button>
           <label className="sr" htmlFor="cm-in">Add a comment</label>
           <input id="cm-in" ref=${input} type="text" value=${text} maxLength="2000"
-            placeholder=${replyTo ? "Write a reply..." : "Add a comment..."}
+            placeholder=${replyTo ? "Write a reply..." : (typeof sel === "number" && pPaths.length > 1 ? "Comment..." : "Add a comment...")}
             onChange=${function (e) { setText(e.target.value); }} />
           <button className="sendbtn" aria-label="Post" disabled=${busy || (!text.trim() && !att)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
         </form>
@@ -3037,7 +3068,7 @@ function SinglePost({ id }) {
   const [post, setPost] = useState(undefined);
   const [err, setErr] = useState(false);
   const load = useCallback(async function () {
-    const r = await sb.from("posts").select("*, comments(id), hearts(user_id)").eq("id", id).maybeSingle();
+    const r = await sb.from("posts").select("*, comments(id,photo_idx), hearts(user_id,photo_idx)").eq("id", id).maybeSingle();
     if (r.error) { setErr(true); return; }
     setErr(false);
     setPost(r.data || null);
@@ -4906,7 +4937,7 @@ function Memories({ root }) {
       return d.getMonth() === now.getMonth() && d.getDate() === now.getDate() && d.getFullYear() < now.getFullYear();
     }).map(function (p) { return p.id; });
     if (!ids.length) { setPosts([]); return; }
-    const full = await sb.from("posts").select("*, comments(id), hearts(user_id)").in("id", ids).order("created_at", { ascending: false });
+    const full = await sb.from("posts").select("*, comments(id,photo_idx), hearts(user_id,photo_idx)").in("id", ids).order("created_at", { ascending: false });
     setPosts(full.data || []);
   }, []);
   useEffect(function () { load(); }, [load, tick]);
@@ -4966,7 +4997,7 @@ function Activity() {
 }
 
 /* =====================  settings / edit profile  ===================== */
-const APP_VERSION = "64";
+const APP_VERSION = "65";
 function Settings({ only }) {
   const profileMode = only === "profile";
   const { me, toast, back, reloadProfiles, reloadMe, easy, setEasy, push } = useApp();
@@ -5384,7 +5415,7 @@ function PromptScreen({ id }) {
   const load = useCallback(async function () {
     const res = await Promise.all([
       sb.from("prompts").select("*").eq("id", id).maybeSingle(),
-      sb.from("posts").select("*, comments(id), hearts(user_id)").eq("prompt_id", id).order("created_at", { ascending: true })
+      sb.from("posts").select("*, comments(id,photo_idx), hearts(user_id,photo_idx)").eq("prompt_id", id).order("created_at", { ascending: true })
     ]);
     if (res[1].error) { setErr(true); return; }
     setErr(false); setPrompt(res[0].data || null); setPosts(res[1].data || []);
@@ -5606,7 +5637,7 @@ function AlbumScreen({ id }) {
     setErr(false); setAlbum(a.data || null);
     const ids = (ap.data || []).map(function (x) { return x.post_id; });
     if (!ids.length) { setPosts([]); return; }
-    const p = await sb.from("posts").select("*, comments(id), hearts(user_id)").in("id", ids).order("created_at", { ascending: false });
+    const p = await sb.from("posts").select("*, comments(id,photo_idx), hearts(user_id,photo_idx)").in("id", ids).order("created_at", { ascending: false });
     setPosts(p.data || []);
   }, [id]);
   useEffect(function () { load(); }, [load, tick]);
@@ -5846,7 +5877,7 @@ function Shell({ me, toast, reloadMe, easy, setEasy }) {
       case "me": return html`<${Profile} userId=${me.id} root=${true} />`;
       case "profile": return html`<${Profile} userId=${route.userId} root=${false} />`;
       case "post": return html`<${SinglePost} id=${route.id} />`;
-      case "comments": return html`<${Comments} postId=${route.postId} />`;
+      case "comments": return html`<${Comments} postId=${route.postId} photoIdx=${route.photoIdx} />`;
       case "new": return html`<${NewPost} day=${route.day} promptId=${route.promptId} promptText=${route.promptText} albumId=${route.albumId} albumName=${route.albumName} />`;
       case "groups": return html`<${GroupsScreen} />`;
       case "prompt": return html`<${PromptScreen} id=${route.id} />`;
