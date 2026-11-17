@@ -599,6 +599,14 @@
     .nav, .composer, .composer2 { left: 50%; right: auto; width: 34rem; max-width: 100%; margin-left: -17rem; }
     .photo { max-height: min(78dvh, 44rem); }
   }
+  /* Round 38: moving between photos with a mouse or keyboard */
+  .carousel:focus-visible { outline: 2px solid #0879a0; outline-offset: -2px; }
+  .dots .dotb.on i { background: var(--green); }
+  .dots .dotb { border: 0; background: none; padding: .35rem .2rem; cursor: pointer; display: flex; }
+  .cnav { position: absolute; top: 50%; transform: translateY(-50%); width: 2.6rem; height: 2.6rem; border-radius: 50%; border: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 1.7rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0 0 .2rem; z-index: 3; }
+  .cnav:hover { background: rgba(0,0,0,.75); }
+  .cnav.prev { left: .5rem; } .cnav.next { right: .5rem; }
+  @media (hover: none) { .cnav { display: none; } }
 </style>
 </head>
 <body>

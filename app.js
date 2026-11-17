@@ -819,6 +819,8 @@ function PostCard({ post, onChange, albumId }) {
   const [grid, setGrid] = useState(true);
   const [start, setStart] = useState(0);
   const startRef = useRef(null);
+  const carRef = useRef(null);
+  const goto = function (k) { const el = carRef.current; if (!el) return; const n = Math.max(0, Math.min(paths.length - 1, k)); el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" }); };
   const [idx, setIdx] = useState(0);
   const lastTap = useRef(0);
   const paths = post.video_path ? (post.extra_paths || []) : postPaths(post);
@@ -916,16 +918,18 @@ function PostCard({ post, onChange, albumId }) {
       </div>`}
       ${paths.length > 1 && !grid && html`
         <div style=${{ position: "relative" }}>
-          <div className="carousel" ref=${function (el) { if (el && startRef.current !== null) { el.scrollLeft = startRef.current * el.clientWidth; startRef.current = null; } }} onScroll=${onScroll} onClick=${photoTap}>
+          <div className="carousel" tabIndex="0" aria-label=${"Photos. Use the left and right arrow keys to move between " + paths.length + " photos."} onKeyDown=${function (e) { if (e.key === "ArrowRight") { e.preventDefault(); goto(idx + 1); } else if (e.key === "ArrowLeft") { e.preventDefault(); goto(idx - 1); } }} ref=${function (el) { carRef.current = el; if (el && startRef.current !== null) { el.scrollLeft = startRef.current * el.clientWidth; startRef.current = null; } }} onScroll=${onScroll} onClick=${photoTap}>
             ${paths.map(function (p, k) {
               return html`<div className="slide" key=${p}>${urls(p) ? html`<img className="photo" src=${urls(p)} alt=${"Photo " + (k + 1) + " of " + paths.length + " shared by " + authorName} draggable="false" />` : html`<div className="photo ph"></div>`}</div>`;
             })}
           </div>
           <div className="count" aria-hidden="true">${idx + 1}/${paths.length}${photoStat(idx).h > 0 ? "  ❤ " + photoStat(idx).h : ""}${photoStat(idx).c > 0 ? "  💬 " + photoStat(idx).c : ""}</div>
           <button className="gridbtn" onClick=${function () { setGrid(true); }}>Grid</button>
+          ${idx > 0 && html`<button className="cnav prev" aria-label="Previous photo" onClick=${function (e) { e.stopPropagation(); goto(idx - 1); }}>‹</button>`}
+          ${idx < paths.length - 1 && html`<button className="cnav next" aria-label="Next photo" onClick=${function (e) { e.stopPropagation(); goto(idx + 1); }}>›</button>`}
           ${burst && html`<div className="pop"><${Icon} n="heart" s=${90} fill="#fff" color="#fff" sw=${1} /></div>`}
         </div>
-        <div className="dots" aria-hidden="true">${paths.map(function (p, k) { return html`<i key=${p} className=${k === idx ? "on" : ""}></i>`; })}</div>`}
+        <div className="dots">${paths.map(function (p, k) { return html`<button type="button" key=${p} className=${"dotb" + (k === idx ? " on" : "")} aria-label=${"Go to photo " + (k + 1)} onClick=${function () { goto(k); }}><i></i></button>`; })}</div>`}
       ${paths.length === 0 && !vp && post.caption && html`<div className="textpost" onClick=${photoTap}><${Linkify} text=${post.caption} /></div>`}
       <div className="acts">
         <button className=${"act" + (hearted ? " on" : "")} aria-label=${hearted ? "Remove your heart" : "Send a heart"} onClick=${function () { setHeart(!hearted); }}>
@@ -4997,7 +5001,7 @@ function Activity() {
 }
 
 /* =====================  settings / edit profile  ===================== */
-const APP_VERSION = "67";
+const APP_VERSION = "68";
 function Settings({ only }) {
   const profileMode = only === "profile";
   const { me, toast, back, reloadProfiles, reloadMe, easy, setEasy, push } = useApp();
