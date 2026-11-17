@@ -293,7 +293,7 @@ async function prepareVideo(file, onProgress, allowLong) {
     }
     if (!window.MediaRecorder || !canvas.captureStream) {
       if (!trimmed && file.size <= MAX_VIDEO_BYTES) { onProgress(1); return { blob: file, poster: poster, seconds: target, trimmed: false, original: true }; }
-      throw new Error("This phone cannot shrink videos yet. Please choose a shorter or smaller clip.");
+      throw new Error("This device cannot shrink videos yet. Please choose a shorter or smaller clip.");
     }
     const types = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
     const mime = types.find(function (t) { return MediaRecorder.isTypeSupported(t); }) || "";
@@ -4997,7 +4997,7 @@ function Activity() {
 }
 
 /* =====================  settings / edit profile  ===================== */
-const APP_VERSION = "65";
+const APP_VERSION = "67";
 function Settings({ only }) {
   const profileMode = only === "profile";
   const { me, toast, back, reloadProfiles, reloadMe, easy, setEasy, push } = useApp();
@@ -5452,7 +5452,7 @@ function VoiceRecorder({ value, onChange }) {
     };
   }, []);
   async function start() {
-    if (!navigator.mediaDevices || !window.MediaRecorder) { toast("This phone cannot record voice here."); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { toast("This device cannot record voice here."); return; }
     try { stream.current = await navigator.mediaDevices.getUserMedia({ audio: true }); }
     catch (e) { toast("Please allow the microphone to record."); return; }
     const types = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];

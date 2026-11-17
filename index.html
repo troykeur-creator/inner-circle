@@ -94,7 +94,7 @@
   .phead { display: flex; align-items: center; gap: .65rem; padding: .6rem .9rem; }
   .pname { font-weight: 600; font-size: .9rem; line-height: 1.2; }
   .psub { font-size: .75rem; color: var(--muted); }
-  .photo { width: 100%; display: block; background: #eee; max-height: 75vh; max-height: 75dvh; object-fit: cover; }
+  .photo { width: 100%; height: auto; display: block; background: #e9eef1; max-height: 75vh; max-height: min(75dvh, 42rem); object-fit: contain; }
   .photo.ph { height: 22rem; }
   .textpost { padding: 1.4rem 1.2rem; background: #f4efe6; font-family: Georgia, serif; font-size: 1.2rem; white-space: pre-wrap; }
   .acts { display: flex; align-items: center; padding: .15rem .4rem 0; }
@@ -591,10 +591,52 @@
   .pchip small { display: block; font-size: .7rem; padding: .1rem 0 .2rem; color: #4a5a55; }
   .pchip.on { border-color: #0879a0; background: #e3f6fc; }
   .ontag { border: 0; background: #e3f6fc; color: #0879a0; font-size: .72rem; padding: 1px 8px; border-radius: 99px; margin-top: .15rem; cursor: pointer; }
+  /* Round 36: on a computer the app is a centered column, and photos are shown whole instead of cropped */
+  .slide { display: flex; align-items: center; background: #e9eef1; }
+  @media (min-width: 760px) {
+    html { background: #dfe8ed; }
+    #root { max-width: 34rem; margin: 0 auto; background: var(--bg); box-shadow: 0 0 0 1px var(--line), 0 8px 34px rgba(0,0,0,.1); }
+    .nav, .composer, .composer2 { left: 50%; right: auto; width: 34rem; max-width: 100%; margin-left: -17rem; }
+    .photo { max-height: min(78dvh, 44rem); }
+  }
 </style>
 </head>
 <body>
 <div id="root"></div>
+<div id="loadfail" hidden style="max-width:30rem;margin:0 auto;padding:3rem 1.5rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0d2433;line-height:1.5">
+  <h1 style="font-family:Georgia,serif;color:#0879a0;font-size:1.6rem;margin:0 0 .6rem">Inner Circle could not start</h1>
+  <p>This is usually one of two things: the browser is too old, or a work or school browser or network is blocking a service the app needs.</p>
+  <ol style="padding-left:1.2rem">
+    <li>Try again with the button below.</li>
+    <li>Try another browser (Chrome, Edge, Firefox or Safari) or your phone.</li>
+    <li>On a work or managed browser, ask your IT team to allow <b>esm.sh</b> and <b>supabase.co</b>.</li>
+    <li>Still stuck? Send the organizer the details below.</li>
+  </ol>
+  <button onclick="location.reload()" style="background:#0879a0;color:#fff;border:0;border-radius:.7rem;padding:.8rem 1.4rem;font-size:1rem;cursor:pointer">Try again</button>
+  <pre id="loadfail-info" style="white-space:pre-wrap;font-size:.75rem;color:#5c6f7b;margin-top:1.5rem"></pre>
+</div>
+<script>
+  /* If the app cannot start (old browser, or a managed browser blocking its code library), say so instead of showing a blank page */
+  (function () {
+    var shown = false;
+    function fail(why) {
+      if (shown) return; shown = true;
+      var box = document.getElementById("loadfail"), info = document.getElementById("loadfail-info");
+      var rt = document.getElementById("root"); if (rt) rt.style.display = "none";
+      box.hidden = false;
+      var lines = ["Reason: " + why, "Browser: " + navigator.userAgent, "Time: " + new Date().toISOString()];
+      info.textContent = lines.join("\n");
+      try {
+        fetch("https://esm.sh/", { mode: "no-cors", cache: "no-store" })
+          .then(function () { info.textContent += "\nesm.sh: reachable"; })
+          .catch(function () { info.textContent += "\nesm.sh: BLOCKED or unreachable"; });
+      } catch (e) {}
+    }
+    if (!("noModule" in HTMLScriptElement.prototype)) fail("this browser is too old");
+    window.addEventListener("error", function (e) { if (e && e.target && e.target.tagName === "SCRIPT") fail("the app code could not load"); }, true);
+    setTimeout(function () { var r = document.getElementById("root"); if (r && !r.firstChild) fail("the app did not start within 12 seconds"); }, 12000);
+  })();
+</script>
 <script src="config.js"></script>
 <script type="module" src="app.js"></script>
 <script>
